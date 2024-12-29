@@ -39,6 +39,13 @@ class HomeFragment : Fragment() {
             binding.textViewX.text = "X: %.2f m/s²".format(data.x)
             binding.textViewY.text = "Y: %.2f m/s²".format(data.y)
             binding.textViewZ.text = "Z: %.2f m/s²".format(data.z)
+
+            binding.root.setBackgroundColor(requireContext().getColor(android.R.color.holo_red_dark))
+
+            binding.root.postDelayed({
+                // Reset to original background (e.g., white or your default)
+                binding.root.setBackgroundColor(requireContext().getColor(android.R.color.white))
+            }, 500)
         }
 
         return root

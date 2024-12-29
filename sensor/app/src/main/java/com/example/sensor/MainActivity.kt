@@ -2,8 +2,21 @@ package com.example.sensor
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothGattServer
+import android.bluetooth.BluetoothGattServerCallback
+import android.bluetooth.BluetoothGattService
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothServerSocket
 import android.bluetooth.BluetoothSocket
+import android.bluetooth.le.AdvertiseCallback
+import android.bluetooth.le.AdvertiseData
+import android.bluetooth.le.AdvertiseSettings
+import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -13,6 +26,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
+import android.os.ParcelUuid
 import android.provider.Settings
 import android.util.Log
 import android.view.Menu
@@ -42,12 +56,18 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var viewModel: SensorViewModel
 
     companion object {
-        private const val TAG = "SensorServer"
-        private const val APP_NAME = "MySensorApp"
-        private val MY_UUID: UUID = UUID.fromString("fa87c0d0-afac-11de-8a39-0800200c9a66")
+        private const val TAG = "SensorApp"
+
+        // Example UUIDs (replace with your own)
+        val SENSOR_SERVICE_UUID: UUID = UUID.fromString("0000feed-0000-1000-8000-00805f9b34fb")
+        val SENSOR_CHARACTERISTIC_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
+        val CONFIG_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 
-    private val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+    private lateinit var bluetoothManager: BluetoothManager
+    private lateinit var bluetoothAdapter: BluetoothAdapter
+    private var bluetoothLeAdvertiser: BluetoothLeAdvertiser? = null
+    private var bluetoothGattServer: BluetoothGattServer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,10 +100,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val intent = Intent(this, SensorForegroundService::class.java)
         startForegroundService(intent)
 
-        checkBluetoothPermissions()
+        bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        bluetoothAdapter = bluetoothManager.adapter
 
-        val serverThread = AcceptThread()
-        serverThread.start()    }
+        checkBlePermissions()
+
+        // Set up the GATT Server
+        setupGattServer()
+
+        // Start advertising
+        startAdvertising()
+    }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         // Inflate the menu; this adds items to the action bar if it is present.
@@ -94,14 +121,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     override fun onSupportNavigateUp(): Boolean {
         val navController = findNavController(R.id.nav_host_fragment_content_main)
         return navController.navigateUp(appBarConfiguration) || super.onSupportNavigateUp()
-    }
-
-    override fun onResume() {
-        super.onResume()
-    }
-
-    override fun onPause() {
-        super.onPause()
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
@@ -122,73 +141,180 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
     }
 
-    @SuppressLint("MissingPermission")
-    private inner class AcceptThread : Thread() {
-        private val mmServerSocket: BluetoothServerSocket? by lazy {
-            bluetoothAdapter?.listenUsingRfcommWithServiceRecord(APP_NAME, MY_UUID)
+    private fun setupGattServer() {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.BLUETOOTH_CONNECT
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return
         }
+        bluetoothGattServer = bluetoothManager.openGattServer(this, gattServerCallback)
 
-        override fun run() {
-            // This call is blocking and will only return on a successful connection or exception
-            var socket: BluetoothSocket? = null
-            var exit = false
-            while (!exit) {
-                try {
-                    Log.d(TAG, "Listening for incoming connections...")
-                    socket = mmServerSocket?.accept()
-                } catch (e: IOException) {
-                    Log.e(TAG, "Socket's accept() method failed", e)
-                    break
-                }
+        val service = BluetoothGattService(
+            SENSOR_SERVICE_UUID,
+            BluetoothGattService.SERVICE_TYPE_PRIMARY
+        )
 
-                socket?.also {
-                    Log.d(TAG, "Connected to client: ${it.remoteDevice.name} (${it.remoteDevice.address})")
-                    // Manage the connection in a separate thread
-                    manageConnectedSocket(it)
-                    // Close the server socket if only one connection is needed
-                    mmServerSocket?.close()
-                    exit = true
-                }
+        val sensorCharacteristic = BluetoothGattCharacteristic(
+            SENSOR_CHARACTERISTIC_UUID,
+            BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+            BluetoothGattCharacteristic.PERMISSION_READ
+        )
+
+        // Descriptor for notifications
+        val configDescriptor = BluetoothGattDescriptor(
+            CONFIG_DESCRIPTOR_UUID,
+            BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
+        )
+        sensorCharacteristic.addDescriptor(configDescriptor)
+
+        // Add the characteristic to the service
+        service.addCharacteristic(sensorCharacteristic)
+
+        // Add the service to the GATT Server
+        bluetoothGattServer?.addService(service)
+        Log.d(TAG, "GATT Server set up")
+    }
+
+    private val gattServerCallback = object : BluetoothGattServerCallback() {
+
+        override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
+            super.onConnectionStateChange(device, status, newState)
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                Log.i(TAG, "Connected to device: ${device.address}")
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                Log.i(TAG, "Disconnected from device: ${device.address}")
             }
         }
 
-        fun cancel() {
-            try {
-                mmServerSocket?.close()
-            } catch (e: IOException) {
-                Log.e(TAG, "Could not close the connect socket", e)
+        override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+            super.onServiceAdded(status, service)
+            Log.i(TAG, "Service added: ${service.uuid}, status=$status")
+        }
+
+        override fun onCharacteristicReadRequest(
+            device: BluetoothDevice,
+            requestId: Int,
+            offset: Int,
+            characteristic: BluetoothGattCharacteristic
+        ) {
+            super.onCharacteristicReadRequest(device, requestId, offset, characteristic)
+            if (characteristic.uuid == SENSOR_CHARACTERISTIC_UUID) {
+                // Example: return a simple byte
+                val data = byteArrayOf(42)
+                characteristic.value = data
+                if (ActivityCompat.checkSelfPermission(
+                        this@MainActivity,
+                        android.Manifest.permission.BLUETOOTH_CONNECT
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    // TODO: Consider calling
+                    //    ActivityCompat#requestPermissions
+                    // here to request the missing permissions, and then overriding
+                    //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                    //                                          int[] grantResults)
+                    // to handle the case where the user grants the permission. See the documentation
+                    // for ActivityCompat#requestPermissions for more details.
+                    return
+                }
+                bluetoothGattServer?.sendResponse(
+                    device,
+                    requestId,
+                    BluetoothGatt.GATT_SUCCESS,
+                    offset,
+                    data
+                )
+                Log.i(TAG, "Read request from ${device.address}, data=42")
             }
         }
     }
 
-    private fun manageConnectedSocket(socket: BluetoothSocket) {
-        // Example: send some sensor data
-        val sensorData = "Hello from Sensor!\n"
-        val outputStream: OutputStream? = socket.outputStream
-        try {
-            outputStream?.write(sensorData.toByteArray())
-            outputStream?.flush()
-            Log.d(TAG, "Sent data to client: $sensorData")
-        } catch (e: IOException) {
-            Log.e(TAG, "Error sending data", e)
-        } finally {
-            try {
-                socket.close()
-            } catch (e: IOException) {
-                Log.e(TAG, "Could not close the socket", e)
-            }
+    private fun startAdvertising() {
+        bluetoothLeAdvertiser = bluetoothAdapter.bluetoothLeAdvertiser
+
+        val settings = AdvertiseSettings.Builder()
+            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+            .setConnectable(true)
+            .build()
+
+        val data = AdvertiseData.Builder()
+            .setIncludeDeviceName(true)
+            .addServiceUuid(ParcelUuid(SENSOR_SERVICE_UUID))
+            .build()
+
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.BLUETOOTH_ADVERTISE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return
+        }
+        bluetoothLeAdvertiser?.startAdvertising(settings, data, advertiseCallback)
+        Log.d(TAG, "startAdvertising() called")
+    }
+
+    private val advertiseCallback = object : AdvertiseCallback() {
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
+            super.onStartSuccess(settingsInEffect)
+            Log.i(TAG, "BLE Advertise Started")
+        }
+
+        override fun onStartFailure(errorCode: Int) {
+            super.onStartFailure(errorCode)
+            Log.e(TAG, "BLE Advertise Failed: $errorCode")
         }
     }
 
-    private fun checkBluetoothPermissions() {
+    override fun onDestroy() {
+        super.onDestroy()
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.BLUETOOTH_ADVERTISE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return
+        }
+        bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback)
+        bluetoothGattServer?.close()
+    }
+
+    private fun checkBlePermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val missingPermissions = mutableListOf<String>()
+            val neededPermissions = mutableListOf<String>()
+            if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
+                neededPermissions.add(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+            }
             if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                missingPermissions.add(android.Manifest.permission.BLUETOOTH_CONNECT)
+                neededPermissions.add(android.Manifest.permission.BLUETOOTH_CONNECT)
             }
-            if (missingPermissions.isNotEmpty()) {
-                ActivityCompat.requestPermissions(this, missingPermissions.toTypedArray(), 1001)
+            if (neededPermissions.isNotEmpty()) {
+                ActivityCompat.requestPermissions(this, neededPermissions.toTypedArray(), 1234)
             }
+        } else {
+            // For older versions, might need location permission for BLE scans
         }
     }
 }

@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.example.monitor"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.example.monitor"
-        minSdk = 33
-        targetSdk = 34
+        minSdk = 35
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
