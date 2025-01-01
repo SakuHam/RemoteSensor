@@ -30,6 +30,7 @@ import android.os.ParcelUuid
 import android.provider.Settings
 import android.util.Log
 import android.view.Menu
+import android.widget.Toast
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.navigation.NavigationView
 import androidx.navigation.findNavController
@@ -102,6 +103,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
         bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
+
+        val hasBLE = packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)
+        if (!hasBLE) {
+            Toast.makeText(this, "BLE not supported", Toast.LENGTH_SHORT).show()
+            finish()
+        }
 
         checkBlePermissions()
 
@@ -182,6 +189,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         // Add the service to the GATT Server
         bluetoothGattServer?.addService(service)
         Log.d(TAG, "GATT Server set up")
+        Toast.makeText(this, "GATT Server set up", Toast.LENGTH_SHORT).show()
     }
 
     private val gattServerCallback = object : BluetoothGattServerCallback() {
@@ -273,6 +281,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
             super.onStartSuccess(settingsInEffect)
             Log.i(TAG, "BLE Advertise Started")
+            Toast.makeText(this@MainActivity, "BLE Advertise Started", Toast.LENGTH_SHORT).show()
         }
 
         override fun onStartFailure(errorCode: Int) {

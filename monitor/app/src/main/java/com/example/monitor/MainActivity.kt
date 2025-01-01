@@ -1,6 +1,7 @@
 package com.example.monitor
 
 import android.Manifest
+import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
@@ -22,6 +23,8 @@ import android.os.Bundle
 import android.os.ParcelUuid
 import android.util.Log
 import android.view.Menu
+import android.widget.Toast
+import androidx.annotation.RequiresApi
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.navigation.NavigationView
 import androidx.navigation.findNavController
@@ -83,9 +86,15 @@ class MainActivity : AppCompatActivity() {
         bluetoothAdapter = bluetoothManager.adapter
         bluetoothLeScanner = bluetoothAdapter.bluetoothLeScanner
 
+        val hasBLE = packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)
+        if (!hasBLE) {
+            Toast.makeText(this, "BLE not supported", Toast.LENGTH_SHORT).show()
+            finish()
+        }
+
         checkBlePermissions()
 
-        startScanForSensor()
+//        startScanForSensor()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -99,7 +108,7 @@ class MainActivity : AppCompatActivity() {
         return navController.navigateUp(appBarConfiguration) || super.onSupportNavigateUp()
     }
 
-    private fun startScanForSensor() {
+    fun startScanForSensor() {
         val scanFilter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(SENSOR_SERVICE_UUID))
             .build()
@@ -123,7 +132,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
         bluetoothLeScanner.startScan(listOf(scanFilter), scanSettings, scanCallback)
+//        bluetoothLeScanner.startScan(null, scanSettings, scanCallback)
         Log.d(TAG, "Started BLE scan for Sensor")
+        Toast.makeText(this, "Started BLE scan for Sensor", Toast.LENGTH_SHORT).show()
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -131,6 +142,7 @@ class MainActivity : AppCompatActivity() {
             super.onScanResult(callbackType, result)
             val device = result.device
             Log.i(TAG, "Found device: ${device.address} (name=${device.name})")
+            Toast.makeText(this@MainActivity, "Found device: ${device.address} (name=${device.name})", Toast.LENGTH_SHORT).show()
 
             if (ActivityCompat.checkSelfPermission(
                     this@MainActivity,
@@ -162,8 +174,9 @@ class MainActivity : AppCompatActivity() {
                 return
             }
         }
-        bluetoothGatt = device.connectGatt(this, false, gattCallback)
+        bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         Log.i(TAG, "Connecting to GATT server on device: ${device.address}")
+        Toast.makeText(this@MainActivity, "Connecting to GATT server on device: ${device.address}", Toast.LENGTH_SHORT).show()
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -172,6 +185,7 @@ class MainActivity : AppCompatActivity() {
             super.onConnectionStateChange(gatt, status, newState)
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "Connected to GATT server, discovering services...")
+                Toast.makeText(this@MainActivity, "Connected to GATT server, discovering services..", Toast.LENGTH_SHORT).show()
                 if (ActivityCompat.checkSelfPermission(
                         this@MainActivity,
                         android.Manifest.permission.BLUETOOTH_CONNECT
