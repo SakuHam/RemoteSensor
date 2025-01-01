@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "MonitorApp"
         val SENSOR_SERVICE_UUID: UUID = UUID.fromString("0000feed-0000-1000-8000-00805f9b34fb")
         val SENSOR_CHARACTERISTIC_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
+        val SENSOR_CALIBRATE_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-01805f9b34fb")
     }
 
     private lateinit var bluetoothManager: BluetoothManager
@@ -176,7 +177,17 @@ class MainActivity : AppCompatActivity() {
         }
         bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         Log.i(TAG, "Connecting to GATT server on device: ${device.address}")
-        Toast.makeText(this@MainActivity, "Connecting to GATT server on device: ${device.address}", Toast.LENGTH_SHORT).show()
+        toast("Connecting to GATT server on device: ${device.address}")
+    }
+
+    private fun toast(text: String) {
+        runOnUiThread {
+            Toast.makeText(
+                this@MainActivity,
+                text,
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -185,24 +196,18 @@ class MainActivity : AppCompatActivity() {
             super.onConnectionStateChange(gatt, status, newState)
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "Connected to GATT server, discovering services...")
-                Toast.makeText(this@MainActivity, "Connected to GATT server, discovering services..", Toast.LENGTH_SHORT).show()
+                toast("Connected to GATT server, discovering services...")
                 if (ActivityCompat.checkSelfPermission(
                         this@MainActivity,
                         android.Manifest.permission.BLUETOOTH_CONNECT
                     ) != PackageManager.PERMISSION_GRANTED
                 ) {
-                    // TODO: Consider calling
-                    //    ActivityCompat#requestPermissions
-                    // here to request the missing permissions, and then overriding
-                    //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                    //                                          int[] grantResults)
-                    // to handle the case where the user grants the permission. See the documentation
-                    // for ActivityCompat#requestPermissions for more details.
                     return
                 }
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "Disconnected from GATT server")
+                toast("Disconnected from GATT server")
             }
         }
 
@@ -210,9 +215,10 @@ class MainActivity : AppCompatActivity() {
             super.onServicesDiscovered(gatt, status)
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.i(TAG, "Services discovered")
+                toast("Services discovered")
                 val service = gatt.getService(SENSOR_SERVICE_UUID)
                 if (service != null) {
-                    val characteristic = service.getCharacteristic(SENSOR_CHARACTERISTIC_UUID)
+                    val characteristic = service.getCharacteristic(SENSOR_CALIBRATE_UUID)
                     if (characteristic != null) {
                         // Read it once
                         if (ActivityCompat.checkSelfPermission(
@@ -220,22 +226,16 @@ class MainActivity : AppCompatActivity() {
                                 android.Manifest.permission.BLUETOOTH_CONNECT
                             ) != PackageManager.PERMISSION_GRANTED
                         ) {
-                            // TODO: Consider calling
-                            //    ActivityCompat#requestPermissions
-                            // here to request the missing permissions, and then overriding
-                            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                            //                                          int[] grantResults)
-                            // to handle the case where the user grants the permission. See the documentation
-                            // for ActivityCompat#requestPermissions for more details.
                             return
                         }
                         gatt.readCharacteristic(characteristic)
 
-                        // Optionally subscribe to notifications:
+                        /*
                         gatt.setCharacteristicNotification(characteristic, true)
                         val descriptor = characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
                         descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                         gatt.writeDescriptor(descriptor)
+                         */
                     }
                 }
             } else {
@@ -250,8 +250,9 @@ class MainActivity : AppCompatActivity() {
         ) {
             super.onCharacteristicRead(gatt, characteristic, status)
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                val data = characteristic.value
-                Log.i(TAG, "onCharacteristicRead: ${data?.toHexString()}")
+                val data = characteristic.value.toString(Charsets.UTF_8)
+                Log.i(TAG, "onCharacteristicRead: $data?")
+                toast("onCharacteristicRead: $data?")
             }
         }
 
@@ -261,7 +262,7 @@ class MainActivity : AppCompatActivity() {
         ) {
             super.onCharacteristicChanged(gatt, characteristic)
             val data = characteristic.value
-            Log.i(TAG, "onCharacteristicChanged: ${data?.toHexString()}")
+            Log.i(TAG, "onCharacteristicChanged: $data?")
         }
     }
 

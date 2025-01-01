@@ -5,14 +5,17 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.ViewModelProvider
 import com.example.sensor.ui.SensorViewModel
@@ -22,8 +25,15 @@ import kotlin.math.sqrt
 
 class SensorForegroundService : Service(), SensorEventListener {
 
+    private val TAG = "SensorForegroundService"
+
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
+
+    private val MAX_SAMPLES = 100
+    private val recentReadings = Array<AccelerometerData?>(MAX_SAMPLES) { null }
+    private var writeIndex = 0  // Points to where the next sample goes
+    private var filledSamples = 0  // How many slots are actually filled (up to MAX_SAMPLES)
 
     @SuppressLint("ForegroundServiceType")
     override fun onCreate() {
@@ -40,11 +50,14 @@ class SensorForegroundService : Service(), SensorEventListener {
 
         // Promote to Foreground Service with a notification
         startForeground(NOTIFICATION_ID, createNotification())
+
+        val filter = IntentFilter(BroadcastActions.ACTION_CALIBRATION_REQUEST)
+        registerReceiver(calibrationReceiver, filter, RECEIVER_EXPORTED)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // Unregister sensor to avoid leaks
+        unregisterReceiver(calibrationReceiver)
         sensorManager.unregisterListener(this)
     }
 
@@ -89,10 +102,102 @@ class SensorForegroundService : Service(), SensorEventListener {
 
                 // Update the ViewModel with the new accelerometer data
                 val data = AccelerometerData(x, y, z)
+                addSample(data)
+
                 SensorRepository.updateSensorData(data)
             }
         }
     }
+
+    private fun addSample(sample: AccelerometerData) {
+        synchronized(recentReadings) {
+            recentReadings[writeIndex] = sample
+
+            // Move the write index forward
+            writeIndex = (writeIndex + 1) % MAX_SAMPLES
+
+            // If we haven't filled up yet, increment
+            if (filledSamples < MAX_SAMPLES) {
+                filledSamples++
+            }
+        }
+    }
+
+    private val calibrationReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == BroadcastActions.ACTION_CALIBRATION_REQUEST) {
+                Log.d(TAG, "Received calibration request broadcast")
+
+                val (avgX, avgY, avgZ, maxDiff) = computeCalibration()
+                val responseString = "Avg: x=%.2f, y=%.2f, z=%.2f; MaxDiff=%.2f".format(
+                    avgX, avgY, avgZ, maxDiff
+                )
+
+                val responseIntent = Intent(BroadcastActions.ACTION_CALIBRATION_RESPONSE)
+                responseIntent.putExtra(BroadcastActions.EXTRA_CALIB_RESULT, responseString)
+                sendBroadcast(responseIntent)
+                Log.d(TAG, "Sent calibration response: $responseString")
+            }
+        }
+    }
+
+    /**
+     * Computes the average (x,y,z) of the recentReadings and the maximum distance
+     * from that average. Returns a 4-tuple: (avgX, avgY, avgZ, maxDistance).
+     */
+    private fun computeCalibration(): Quadruple<Float, Float, Float, Float> {
+        var sumX = 0f
+        var sumY = 0f
+        var sumZ = 0f
+        val sampleCount: Int
+
+        synchronized(recentReadings) {
+            sampleCount = filledSamples
+            if (sampleCount == 0) {
+                // no data
+                return Quadruple(0f, 0f, 0f, 0f)
+            }
+            for (i in 0 until sampleCount) {
+                val sampleIndex = (writeIndex - 1 - i + MAX_SAMPLES) % MAX_SAMPLES
+                val reading = recentReadings[sampleIndex]
+                if (reading != null) {
+                    sumX += reading.x
+                    sumY += reading.y
+                    sumZ += reading.z
+                }
+            }
+        }
+
+        // compute average
+        val avgX = sumX / sampleCount
+        val avgY = sumY / sampleCount
+        val avgZ = sumZ / sampleCount
+
+        // find max distance
+        var maxDistance = 0f
+        synchronized(recentReadings) {
+            for (i in 0 until sampleCount) {
+                val sampleIndex = (writeIndex - 1 - i + MAX_SAMPLES) % MAX_SAMPLES
+                val reading = recentReadings[sampleIndex]
+                if (reading != null) {
+                    val dx = reading.x - avgX
+                    val dy = reading.y - avgY
+                    val dz = reading.z - avgZ
+                    val distance = kotlin.math.sqrt(dx*dx + dy*dy + dz*dz)
+                    if (distance > maxDistance) {
+                        maxDistance = distance
+                    }
+                }
+            }
+        }
+
+        return Quadruple(avgX, avgY, avgZ, maxDistance)
+    }
+
+
+    /** A simple class that holds 4 typed values. */
+    data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
     companion object {
         const val NOTIFICATION_ID = 1001
     }

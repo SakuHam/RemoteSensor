@@ -1,5 +1,6 @@
 package com.example.sensor
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -17,8 +18,10 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -49,12 +52,27 @@ import java.io.IOException
 import java.io.OutputStream
 import java.util.UUID
 
-class MainActivity : AppCompatActivity(), SensorEventListener {
+class MainActivity : AppCompatActivity() {
+    // Indicates if we are currently calibrating
+    @Volatile
+    private var isCalibrating = false
+
+    // Store last calibration result so we can respond quickly
+    private var lastCalibrationResult: String = "Not calibrated yet"
 
     private lateinit var appBarConfiguration: AppBarConfiguration
     private lateinit var binding: ActivityMainBinding
 
     private lateinit var viewModel: SensorViewModel
+
+    @Volatile
+    private var pendingCalibrationDevice: BluetoothDevice? = null
+    @Volatile
+    private var pendingCalibrationRequestId: Int = 0
+    @Volatile
+    private var pendingCalibrationOffset: Int = 0
+    @Volatile
+    private var pendingCalibrationCharacteristic: BluetoothGattCharacteristic? = null
 
     companion object {
         private const val TAG = "SensorApp"
@@ -62,6 +80,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         // Example UUIDs (replace with your own)
         val SENSOR_SERVICE_UUID: UUID = UUID.fromString("0000feed-0000-1000-8000-00805f9b34fb")
         val SENSOR_CHARACTERISTIC_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
+        val SENSOR_CALIBRATE_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-01805f9b34fb")
         val CONFIG_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 
@@ -95,6 +114,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         )
         setupActionBarWithNavController(navController, appBarConfiguration)
         navView.setupWithNavController(navController)
+
+        val filter = IntentFilter(BroadcastActions.ACTION_CALIBRATION_RESPONSE)
+        registerReceiver(calibrationResultReceiver, filter, RECEIVER_EXPORTED)
 
         viewModel = ViewModelProvider(this)[SensorViewModel::class.java]
 
@@ -130,24 +152,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         return navController.navigateUp(appBarConfiguration) || super.onSupportNavigateUp()
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // You can handle sensor accuracy changes here if needed
-    }
-
-    override fun onSensorChanged(event: SensorEvent?) {
-        event?.let {
-            if (it.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) {
-                // Get the accelerometer values
-                val x = it.values[0]
-                val y = it.values[1]
-                val z = it.values[2]
-
-                val data = AccelerometerData(x, y, z)
-                SensorRepository.updateSensorData(data)
-            }
-        }
-    }
-
     private fun setupGattServer() {
         if (ActivityCompat.checkSelfPermission(
                 this,
@@ -171,7 +175,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         )
 
         val sensorCharacteristic = BluetoothGattCharacteristic(
-            SENSOR_CHARACTERISTIC_UUID,
+            SENSOR_CALIBRATE_UUID,
             BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
             BluetoothGattCharacteristic.PERMISSION_READ
         )
@@ -194,12 +198,24 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private val gattServerCallback = object : BluetoothGattServerCallback() {
 
+        private fun toast(text: String) {
+            runOnUiThread {
+                Toast.makeText(
+                    this@MainActivity,
+                    text,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             super.onConnectionStateChange(device, status, newState)
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "Connected to device: ${device.address}")
+                toast("Connected to device: ${device.address}")
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "Disconnected from device: ${device.address}")
+                toast("Disconnected from device: ${device.address}")
             }
         }
 
@@ -215,32 +231,77 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             characteristic: BluetoothGattCharacteristic
         ) {
             super.onCharacteristicReadRequest(device, requestId, offset, characteristic)
-            if (characteristic.uuid == SENSOR_CHARACTERISTIC_UUID) {
-                // Example: return a simple byte
-                val data = byteArrayOf(42)
-                characteristic.value = data
-                if (ActivityCompat.checkSelfPermission(
-                        this@MainActivity,
-                        android.Manifest.permission.BLUETOOTH_CONNECT
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    // TODO: Consider calling
-                    //    ActivityCompat#requestPermissions
-                    // here to request the missing permissions, and then overriding
-                    //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                    //                                          int[] grantResults)
-                    // to handle the case where the user grants the permission. See the documentation
-                    // for ActivityCompat#requestPermissions for more details.
+
+            if (characteristic.uuid == SENSOR_CALIBRATE_UUID) {
+                if (isCalibrating) {
                     return
+                    /*
+                    if (ActivityCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.BLUETOOTH_CONNECT
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        return
+                    }
+                    val data = "Already calibrating".toByteArray()
+                    characteristic.value = data
+                    bluetoothGattServer!!.sendResponse(
+                        device,
+                        requestId,
+                        BluetoothGatt.GATT_SUCCESS,
+                        0,
+                        data
+                    )
+                    return
+                     */
                 }
-                bluetoothGattServer?.sendResponse(
-                    device,
-                    requestId,
-                    BluetoothGatt.GATT_SUCCESS,
-                    offset,
-                    data
-                )
-                Log.i(TAG, "Read request from ${device.address}, data=42")
+                isCalibrating = true
+                Log.d(TAG, "Received read request for calibration. Sending broadcast...")
+
+                pendingCalibrationDevice = device
+                pendingCalibrationRequestId = requestId
+                pendingCalibrationOffset = offset
+                pendingCalibrationCharacteristic = characteristic
+
+                val requestIntent = Intent(BroadcastActions.ACTION_CALIBRATION_REQUEST)
+                sendBroadcast(requestIntent)
+            }
+        }
+    }
+
+    private val calibrationResultReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == BroadcastActions.ACTION_CALIBRATION_RESPONSE) {
+                val result = intent.getStringExtra(BroadcastActions.EXTRA_CALIB_RESULT) ?: "No result"
+                Log.d(TAG, "Got calibration result: $result")
+
+                val data = result.toByteArray()
+
+                pendingCalibrationCharacteristic?.value = data
+
+                if (bluetoothGattServer != null && pendingCalibrationDevice != null) {
+                    if (ActivityCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.BLUETOOTH_CONNECT
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        return
+                    }
+                    bluetoothGattServer!!.sendResponse(
+                        pendingCalibrationDevice,
+                        pendingCalibrationRequestId,
+                        BluetoothGatt.GATT_SUCCESS,
+                        pendingCalibrationOffset,
+                        data
+                    )
+                    Log.d(TAG, "Responded to GATT with calibration data.")
+                } else {
+                    Log.e(TAG, "Could not respond, GATT server or device is null.")
+                }
+
+                pendingCalibrationDevice = null
+                pendingCalibrationCharacteristic = null
+                isCalibrating = false
             }
         }
     }
@@ -292,18 +353,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onDestroy() {
         super.onDestroy()
+        unregisterReceiver(calibrationResultReceiver)
         if (ActivityCompat.checkSelfPermission(
                 this,
                 android.Manifest.permission.BLUETOOTH_ADVERTISE
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
             return
         }
         bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback)
