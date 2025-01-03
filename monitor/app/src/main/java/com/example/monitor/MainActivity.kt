@@ -1,6 +1,7 @@
 package com.example.monitor
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -20,6 +21,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import android.view.Menu
@@ -67,6 +70,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sensorAdapter: SensorAdapter
     @Volatile
     var pendingSensor: SensorObject? = null
+
+    private var scanTimeoutHandler:Handler? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -161,31 +166,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val scanCallback = object : ScanCallback() {
+        @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
             val device = result.device
             pendingSensor = SensorObject(device, null, mutableListOf()).apply {
-                sensorViewModel.addSensor(this)
+                if (!sensorViewModel.addSensor(this)) {
+                    connectToDevice(device)
+                }
             }
 
             Log.i(TAG, "Found device: ${device.address} (name=${device.name})")
-
-            if (ActivityCompat.checkSelfPermission(
-                    this@MainActivity,
-                    android.Manifest.permission.BLUETOOTH_SCAN
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                // TODO: Consider calling
-                //    ActivityCompat#requestPermissions
-                // here to request the missing permissions, and then overriding
-                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                //                                          int[] grantResults)
-                // to handle the case where the user grants the permission. See the documentation
-                // for ActivityCompat#requestPermissions for more details.
-                return
+            if (scanTimeoutHandler == null) {
+                scanTimeoutHandler = Handler(Looper.getMainLooper())
+                scanTimeoutHandler!!.postDelayed({
+                    bluetoothLeScanner.stopScan(this)
+                    scanTimeoutHandler = null
+                    Log.d(TAG, "Stopped BLE scan after timeout")
+                    toast("Stopped BLE scan after timeout")
+                }, 5000)
             }
-            bluetoothLeScanner.stopScan(this)
-            connectToDevice(device)
         }
 
         override fun onScanFailed(errorCode: Int) {
@@ -233,10 +233,11 @@ class MainActivity : AppCompatActivity() {
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "Disconnected from GATT server")
-                toast("Disconnected from GATT server")
+//                toast("Disconnected from GATT server")
             }
         }
 
+        @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             super.onServicesDiscovered(gatt, status)
             if (status == BluetoothGatt.GATT_SUCCESS) {
@@ -246,18 +247,12 @@ class MainActivity : AppCompatActivity() {
                     val characteristic = service.getCharacteristic(SENSOR_CALIBRATE_UUID)
                     if (characteristic != null) {
                         pendingSensor?.characteristics?.add(characteristic)
-                        // Read it once
-                        if (ActivityCompat.checkSelfPermission(
-                                this@MainActivity,
-                                android.Manifest.permission.BLUETOOTH_CONNECT
-                            ) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            return
-                        }
+
                         gatt.readCharacteristic(characteristic)
 
                         gatt.setCharacteristicNotification(characteristic, true)
-                        val descriptor = characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+                        val descriptor =
+                            characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
                         descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                         gatt.writeDescriptor(descriptor)
                     }

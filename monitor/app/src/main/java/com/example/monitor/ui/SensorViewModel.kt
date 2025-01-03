@@ -13,12 +13,19 @@ class SensorViewModel : ViewModel() {
         _sensors.value = sensorMap
     }
 
-    fun addSensor(sensor: SensorObject) {
+    fun addSensor(sensor: SensorObject): Boolean {
         val currentMap = _sensors.value ?: emptyMap()
         if (!currentMap.containsKey(sensor.device.address)) {
             val updatedMap = currentMap.toMutableMap()
             updatedMap[sensor.device.address ?: "Unknown Device"] = sensor
             _sensors.value = updatedMap
+            return false
         }
+        return true
+    }
+
+    fun contains(sensor: SensorObject): Boolean {
+        val currentMap = _sensors.value ?: emptyMap()
+        return currentMap.containsKey(sensor.device.address)
     }
 }
