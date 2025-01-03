@@ -230,12 +230,10 @@ class MainActivity : AppCompatActivity() {
                         }
                         gatt.readCharacteristic(characteristic)
 
-                        /*
                         gatt.setCharacteristicNotification(characteristic, true)
                         val descriptor = characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
                         descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                         gatt.writeDescriptor(descriptor)
-                         */
                     }
                 }
             } else {
@@ -261,7 +259,7 @@ class MainActivity : AppCompatActivity() {
             characteristic: BluetoothGattCharacteristic
         ) {
             super.onCharacteristicChanged(gatt, characteristic)
-            val data = characteristic.value
+            val data = characteristic.value.toString(Charsets.UTF_8)
             Log.i(TAG, "onCharacteristicChanged: $data?")
         }
     }

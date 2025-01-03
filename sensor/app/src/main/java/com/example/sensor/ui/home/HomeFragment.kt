@@ -48,6 +48,14 @@ class HomeFragment : Fragment() {
             }, 500)
         }
 
+        viewModel.sensorCalibrationData.observe(viewLifecycleOwner) { data ->
+            // Update your TextViews with the accelerometer data
+            binding.textViewCX.text = "CX: %.2f m/s²".format(data.x)
+            binding.textViewCY.text = "CY: %.2f m/s²".format(data.y)
+            binding.textViewCZ.text = "CZ: %.2f m/s²".format(data.z)
+            binding.textViewCD.text = "CD: %.2f m/s²".format(data.d)
+        }
+
         return root
     }
 

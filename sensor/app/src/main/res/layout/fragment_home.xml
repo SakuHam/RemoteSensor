@@ -46,5 +46,46 @@
         android:layout_height="wrap_content"
         android:text="Z: 0.00 m/s²"
         android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/textViewCalibration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Accelerometer Calibration"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginTop="32dp"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/textViewCX"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="CX: 0.00 m/s²"
+        android:textSize="16sp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/textViewCY"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="CY: 0.00 m/s²"
+        android:textSize="16sp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/textViewCZ"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="CZ: 0.00 m/s²"
+        android:textSize="16sp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/textViewCD"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="CD: 0.00 m/s²"
+        android:textSize="16sp" />
     </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

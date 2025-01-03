@@ -20,6 +20,7 @@ import androidx.core.app.NotificationCompat
 import androidx.lifecycle.ViewModelProvider
 import com.example.sensor.ui.SensorViewModel
 import com.example.sensor.ui.model.AccelerometerData
+import com.example.sensor.ui.model.CalibrationData
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -34,6 +35,9 @@ class SensorForegroundService : Service(), SensorEventListener {
     private val recentReadings = Array<AccelerometerData?>(MAX_SAMPLES) { null }
     private var writeIndex = 0  // Points to where the next sample goes
     private var filledSamples = 0  // How many slots are actually filled (up to MAX_SAMPLES)
+
+    @Volatile
+    private var calibration = Quadruple(0.02f, 0.02f, 0.20f, 0.1f)
 
     @SuppressLint("ForegroundServiceType")
     override fun onCreate() {
@@ -93,12 +97,12 @@ class SensorForegroundService : Service(), SensorEventListener {
                 val y = it.values[1]
                 val z = it.values[2]
 
-                val deltaX = abs(x - 0.02)
-                val deltaY = abs(y - 0.02)
-                val deltaZ = abs(z - 0.20)
+                val deltaX = abs(x - calibration.first)
+                val deltaY = abs(y - calibration.second)
+                val deltaZ = abs(z - calibration.third)
                 val d = sqrt(deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ)
 
-                if (d < 0.1) return
+                if (d < calibration.fourth) return
 
                 // Update the ViewModel with the new accelerometer data
                 val data = AccelerometerData(x, y, z)
@@ -129,6 +133,8 @@ class SensorForegroundService : Service(), SensorEventListener {
                 Log.d(TAG, "Received calibration request broadcast")
 
                 val (avgX, avgY, avgZ, maxDiff) = computeCalibration()
+                calibration = Quadruple(avgX, avgY, avgZ, maxDiff)
+                SensorRepository.updateSensorCalibrationData(CalibrationData(avgX, avgY, avgZ, maxDiff))
                 val responseString = "Avg: x=%.2f, y=%.2f, z=%.2f; MaxDiff=%.2f".format(
                     avgX, avgY, avgZ, maxDiff
                 )

@@ -3,6 +3,7 @@ package com.example.sensor
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.example.sensor.ui.model.AccelerometerData
+import com.example.sensor.ui.model.CalibrationData
 
 object SensorRepository {
     // Could be LiveData, Flow, or something else
@@ -11,5 +12,12 @@ object SensorRepository {
 
     fun updateSensorData(newData: AccelerometerData) {
         _sensorData.value = newData
+    }
+
+    private val _sensorCalibrationData = MutableLiveData<CalibrationData>()
+    val sensorCalibrationData: LiveData<CalibrationData> get() = _sensorCalibrationData
+
+    fun updateSensorCalibrationData(newData: CalibrationData) {
+        _sensorCalibrationData.value = newData
     }
 }
