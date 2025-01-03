@@ -249,8 +249,8 @@ class MainActivity : AppCompatActivity() {
             super.onCharacteristicRead(gatt, characteristic, status)
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 val data = characteristic.value.toString(Charsets.UTF_8)
-                Log.i(TAG, "onCharacteristicRead: $data?")
-                toast("onCharacteristicRead: $data?")
+//                Log.i(TAG, "onCharacteristicRead: $data")
+//                toast("onCharacteristicRead: $data")
             }
         }
 
@@ -259,8 +259,10 @@ class MainActivity : AppCompatActivity() {
             characteristic: BluetoothGattCharacteristic
         ) {
             super.onCharacteristicChanged(gatt, characteristic)
-            val data = characteristic.value.toString(Charsets.UTF_8)
-            Log.i(TAG, "onCharacteristicChanged: $data?")
+            if (characteristic.uuid == SENSOR_CALIBRATE_UUID) {
+                val data = characteristic.value.toString(Charsets.UTF_8)
+                toast("Calibrated: $data")
+            }
         }
     }
 

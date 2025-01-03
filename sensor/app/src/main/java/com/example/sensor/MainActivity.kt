@@ -234,8 +234,6 @@ class MainActivity : AppCompatActivity() {
 
             if (characteristic.uuid == SENSOR_CALIBRATE_UUID) {
                 if (isCalibrating) {
-                    return
-                    /*
                     if (ActivityCompat.checkSelfPermission(
                             this@MainActivity,
                             Manifest.permission.BLUETOOTH_CONNECT
@@ -253,7 +251,6 @@ class MainActivity : AppCompatActivity() {
                         data
                     )
                     return
-                     */
                 }
                 isCalibrating = true
                 Log.d(TAG, "Received read request for calibration. Sending broadcast...")
@@ -262,6 +259,16 @@ class MainActivity : AppCompatActivity() {
                 pendingCalibrationRequestId = requestId
                 pendingCalibrationOffset = offset
                 pendingCalibrationCharacteristic = characteristic
+
+                val data = "Calibrating".toByteArray()
+                characteristic.value = data
+                bluetoothGattServer!!.sendResponse(
+                    device,
+                    requestId,
+                    BluetoothGatt.GATT_SUCCESS,
+                    0,
+                    data
+                )
 
                 val requestIntent = Intent(BroadcastActions.ACTION_CALIBRATION_REQUEST)
                 sendBroadcast(requestIntent)
@@ -287,12 +294,10 @@ class MainActivity : AppCompatActivity() {
                     ) {
                         return
                     }
-                    bluetoothGattServer!!.sendResponse(
+                    bluetoothGattServer?.notifyCharacteristicChanged(
                         pendingCalibrationDevice,
-                        pendingCalibrationRequestId,
-                        BluetoothGatt.GATT_SUCCESS,
-                        pendingCalibrationOffset,
-                        data
+                        pendingCalibrationCharacteristic,
+                        false  // or true if using indications
                     )
                     Log.d(TAG, "Responded to GATT with calibration data.")
                 } else {
