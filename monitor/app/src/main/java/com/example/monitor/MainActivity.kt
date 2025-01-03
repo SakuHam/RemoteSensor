@@ -35,7 +35,11 @@ import androidx.navigation.ui.setupWithNavController
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.ViewModelProvider
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.example.monitor.databinding.ActivityMainBinding
+import com.example.monitor.ui.SensorViewModel
 import java.io.IOException
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -58,6 +62,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bluetoothAdapter: BluetoothAdapter
     private lateinit var bluetoothLeScanner: BluetoothLeScanner
     private var bluetoothGatt: BluetoothGatt? = null
+
+    private lateinit var sensorViewModel: SensorViewModel
+    private lateinit var sensorAdapter: SensorAdapter
+    @Volatile
+    var pendingSensor: SensorObject? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +93,18 @@ class MainActivity : AppCompatActivity() {
         )
         setupActionBarWithNavController(navController, appBarConfiguration)
         navView.setupWithNavController(navController)
+
+        val recyclerView = findViewById<RecyclerView>(R.id.sensorRecyclerView)
+        sensorAdapter = SensorAdapter()
+        recyclerView.adapter = sensorAdapter
+        recyclerView.layoutManager = LinearLayoutManager(this)
+
+        sensorViewModel = ViewModelProvider(this).get(SensorViewModel::class.java)
+
+        // Observe sensors LiveData
+        sensorViewModel.sensors.observe(this) { sensors ->
+            sensorAdapter.submitList(sensors)
+        }
 
         bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
@@ -144,6 +165,10 @@ class MainActivity : AppCompatActivity() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
             val device = result.device
+            pendingSensor = SensorObject(device, null, mutableListOf()).apply {
+                sensorViewModel.addSensor(this)
+            }
+
             Log.i(TAG, "Found device: ${device.address} (name=${device.name})")
             Toast.makeText(this@MainActivity, "Found device: ${device.address} (name=${device.name})", Toast.LENGTH_SHORT).show()
 
@@ -177,7 +202,10 @@ class MainActivity : AppCompatActivity() {
                 return
             }
         }
-        bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        val gatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        pendingSensor.let {
+            this.bluetoothGatt = gatt
+        }
         Log.i(TAG, "Connecting to GATT server on device: ${device.address}")
         toast("Connecting to GATT server on device: ${device.address}")
     }
@@ -222,6 +250,7 @@ class MainActivity : AppCompatActivity() {
                 if (service != null) {
                     val characteristic = service.getCharacteristic(SENSOR_CALIBRATE_UUID)
                     if (characteristic != null) {
+                        pendingSensor?.characteristics?.add(characteristic)
                         // Read it once
                         if (ActivityCompat.checkSelfPermission(
                                 this@MainActivity,
