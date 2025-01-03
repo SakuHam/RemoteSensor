@@ -103,7 +103,7 @@ class MainActivity : AppCompatActivity() {
 
         // Observe sensors LiveData
         sensorViewModel.sensors.observe(this) { sensors ->
-            sensorAdapter.submitList(sensors)
+            sensorAdapter.submitList(sensors.values.toList())
         }
 
         bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -158,7 +158,6 @@ class MainActivity : AppCompatActivity() {
         bluetoothLeScanner.startScan(listOf(scanFilter), scanSettings, scanCallback)
 //        bluetoothLeScanner.startScan(null, scanSettings, scanCallback)
         Log.d(TAG, "Started BLE scan for Sensor")
-        Toast.makeText(this, "Started BLE scan for Sensor", Toast.LENGTH_SHORT).show()
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -170,7 +169,6 @@ class MainActivity : AppCompatActivity() {
             }
 
             Log.i(TAG, "Found device: ${device.address} (name=${device.name})")
-            Toast.makeText(this@MainActivity, "Found device: ${device.address} (name=${device.name})", Toast.LENGTH_SHORT).show()
 
             if (ActivityCompat.checkSelfPermission(
                     this@MainActivity,
@@ -207,7 +205,6 @@ class MainActivity : AppCompatActivity() {
             this.bluetoothGatt = gatt
         }
         Log.i(TAG, "Connecting to GATT server on device: ${device.address}")
-        toast("Connecting to GATT server on device: ${device.address}")
     }
 
     private fun toast(text: String) {
@@ -226,7 +223,6 @@ class MainActivity : AppCompatActivity() {
             super.onConnectionStateChange(gatt, status, newState)
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "Connected to GATT server, discovering services...")
-                toast("Connected to GATT server, discovering services...")
                 if (ActivityCompat.checkSelfPermission(
                         this@MainActivity,
                         android.Manifest.permission.BLUETOOTH_CONNECT
@@ -245,7 +241,6 @@ class MainActivity : AppCompatActivity() {
             super.onServicesDiscovered(gatt, status)
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.i(TAG, "Services discovered")
-                toast("Services discovered")
                 val service = gatt.getService(SENSOR_SERVICE_UUID)
                 if (service != null) {
                     val characteristic = service.getCharacteristic(SENSOR_CALIBRATE_UUID)

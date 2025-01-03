@@ -6,16 +6,19 @@ import androidx.lifecycle.ViewModel
 import com.example.monitor.SensorObject
 
 class SensorViewModel : ViewModel() {
-    private val _sensors = MutableLiveData<List<SensorObject>>(emptyList())
-    val sensors: LiveData<List<SensorObject>> get() = _sensors
+    private val _sensors = MutableLiveData<Map<String, SensorObject>>(emptyMap())
+    val sensors: LiveData<Map<String, SensorObject>> get() = _sensors
 
-    fun updateSensors(sensorList: List<SensorObject>) {
-        _sensors.value = sensorList
+    fun updateSensors(sensorMap: Map<String, SensorObject>) {
+        _sensors.value = sensorMap
     }
 
     fun addSensor(sensor: SensorObject) {
-        val updatedList = _sensors.value?.toMutableList() ?: mutableListOf()
-        updatedList.add(sensor)
-        _sensors.value = updatedList
+        val currentMap = _sensors.value ?: emptyMap()
+        if (!currentMap.containsKey(sensor.device.address)) {
+            val updatedMap = currentMap.toMutableMap()
+            updatedMap[sensor.device.address ?: "Unknown Device"] = sensor
+            _sensors.value = updatedMap
+        }
     }
 }
