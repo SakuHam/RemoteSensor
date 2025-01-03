@@ -38,6 +38,8 @@ import androidx.core.app.ActivityCompat
 import com.example.monitor.databinding.ActivityMainBinding
 import java.io.IOException
 import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
@@ -248,7 +250,7 @@ class MainActivity : AppCompatActivity() {
         ) {
             super.onCharacteristicRead(gatt, characteristic, status)
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                val data = characteristic.value.toString(Charsets.UTF_8)
+//                val data = characteristic.value.toString(Charsets.UTF_8)
 //                Log.i(TAG, "onCharacteristicRead: $data")
 //                toast("onCharacteristicRead: $data")
             }
@@ -260,9 +262,19 @@ class MainActivity : AppCompatActivity() {
         ) {
             super.onCharacteristicChanged(gatt, characteristic)
             if (characteristic.uuid == SENSOR_CALIBRATE_UUID) {
-                val data = characteristic.value.toString(Charsets.UTF_8)
-                toast("Calibrated: $data")
+                val data = byteArrayToFloats(characteristic.value)
+                toast("Calibrated: x:${data[0]}, y:${data[1]}, z:${data[2]}, d:${data[3]}")
             }
+        }
+
+        fun byteArrayToFloats(byteArray: ByteArray): FloatArray {
+            val byteBuffer = ByteBuffer.wrap(byteArray)
+            byteBuffer.order(ByteOrder.LITTLE_ENDIAN) // Ensure the same byte order is used
+            val floats = FloatArray(byteArray.size / 4) // 4 bytes per float
+            for (i in floats.indices) {
+                floats[i] = byteBuffer.getFloat()
+            }
+            return floats
         }
     }
 

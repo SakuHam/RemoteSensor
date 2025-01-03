@@ -50,6 +50,8 @@ import com.example.sensor.ui.SensorViewModel
 import com.example.sensor.ui.model.AccelerometerData
 import java.io.IOException
 import java.io.OutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
@@ -276,13 +278,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun floatsToByteArray(floats: FloatArray): ByteArray {
+        val byteBuffer = ByteBuffer.allocate(floats.size * 4) // 4 bytes per float
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN) // BLE typically uses little-endian
+        floats.forEach { byteBuffer.putFloat(it) }
+        return byteBuffer.array()
+    }
+
     private val calibrationResultReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == BroadcastActions.ACTION_CALIBRATION_RESPONSE) {
-                val result = intent.getStringExtra(BroadcastActions.EXTRA_CALIB_RESULT) ?: "No result"
-                Log.d(TAG, "Got calibration result: $result")
+                val result = intent.getFloatArrayExtra(BroadcastActions.EXTRA_CALIB_RESULT) ?: FloatArray(0)
 
-                val data = result.toByteArray()
+                val data = floatsToByteArray(result)
 
                 pendingCalibrationCharacteristic?.value = data
 

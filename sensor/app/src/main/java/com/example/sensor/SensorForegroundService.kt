@@ -135,14 +135,12 @@ class SensorForegroundService : Service(), SensorEventListener {
                 val (avgX, avgY, avgZ, maxDiff) = computeCalibration()
                 calibration = Quadruple(avgX, avgY, avgZ, maxDiff)
                 SensorRepository.updateSensorCalibrationData(CalibrationData(avgX, avgY, avgZ, maxDiff))
-                val responseString = "Avg: x=%.2f, y=%.2f, z=%.2f; MaxDiff=%.2f".format(
-                    avgX, avgY, avgZ, maxDiff
-                )
+                val response = floatArrayOf(avgX, avgY, avgZ, maxDiff)
 
                 val responseIntent = Intent(BroadcastActions.ACTION_CALIBRATION_RESPONSE)
-                responseIntent.putExtra(BroadcastActions.EXTRA_CALIB_RESULT, responseString)
+                responseIntent.putExtra(BroadcastActions.EXTRA_CALIB_RESULT, response)
                 sendBroadcast(responseIntent)
-                Log.d(TAG, "Sent calibration response: $responseString")
+                Log.d(TAG, "Sent calibration response: $response")
             }
         }
     }
