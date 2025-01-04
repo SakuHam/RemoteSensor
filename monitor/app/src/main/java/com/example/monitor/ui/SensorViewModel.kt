@@ -1,5 +1,6 @@
 package com.example.monitor.ui
 
+import android.annotation.SuppressLint
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -27,5 +28,19 @@ class SensorViewModel : ViewModel() {
     fun contains(sensor: SensorObject): Boolean {
         val currentMap = _sensors.value ?: emptyMap()
         return currentMap.containsKey(sensor.device.address)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun forget() {
+        val currentMap = _sensors.value ?: emptyMap()
+
+        // Disconnect and close all GATT connections
+        currentMap.values.forEach { sensor ->
+            sensor.gatt?.disconnect()
+            sensor.gatt?.close()
+        }
+
+        // Clear the sensors map
+        _sensors.value = emptyMap()
     }
 }

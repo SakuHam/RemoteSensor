@@ -44,6 +44,7 @@ import androidx.navigation.ui.setupWithNavController
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import com.example.sensor.databinding.ActivityMainBinding
 import com.example.sensor.ui.SensorViewModel
@@ -76,12 +77,20 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var pendingCalibrationCharacteristic: BluetoothGattCharacteristic? = null
 
+
+    @Volatile
+    private var pendingStatusDevice: BluetoothDevice? = null
+    @Volatile
+    private var pendingStatusCharacteristic: BluetoothGattCharacteristic? = null
+
+
+
     companion object {
         private const val TAG = "SensorApp"
 
         // Example UUIDs (replace with your own)
         val SENSOR_SERVICE_UUID: UUID = UUID.fromString("0000feed-0000-1000-8000-00805f9b34fb")
-        val SENSOR_SET_SENSITIVITY_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
+        val SENSOR_STATUS_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
         val SENSOR_CALIBRATE_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-01805f9b34fb")
         val CONFIG_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
@@ -117,8 +126,12 @@ class MainActivity : AppCompatActivity() {
         setupActionBarWithNavController(navController, appBarConfiguration)
         navView.setupWithNavController(navController)
 
-        val filter = IntentFilter(BroadcastActions.ACTION_CALIBRATION_RESPONSE)
-        registerReceiver(calibrationResultReceiver, filter, RECEIVER_EXPORTED)
+        registerReceiver(calibrationResultReceiver, IntentFilter(BroadcastActions.ACTION_CALIBRATION_RESPONSE),
+            RECEIVER_EXPORTED)
+
+        registerReceiver(statusReceiver, IntentFilter(BroadcastActions.ACTION_STATUS_REQUEST),
+            RECEIVER_EXPORTED)
+
 
         viewModel = ViewModelProvider(this)[SensorViewModel::class.java]
 
@@ -154,21 +167,8 @@ class MainActivity : AppCompatActivity() {
         return navController.navigateUp(appBarConfiguration) || super.onSupportNavigateUp()
     }
 
+    @SuppressLint("MissingPermission")
     private fun setupGattServer() {
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                android.Manifest.permission.BLUETOOTH_CONNECT
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
-            return
-        }
         bluetoothGattServer = bluetoothManager.openGattServer(this, gattServerCallback)
 
         val service = BluetoothGattService(
@@ -179,8 +179,8 @@ class MainActivity : AppCompatActivity() {
         service.let {
             val sensorCharacteristic = BluetoothGattCharacteristic(
                 SENSOR_CALIBRATE_UUID,
-                BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-                BluetoothGattCharacteristic.PERMISSION_READ
+                BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                BluetoothGattCharacteristic.PERMISSION_READ or BluetoothGattCharacteristic.PERMISSION_WRITE
             )
 
             // Descriptor for notifications
@@ -196,8 +196,8 @@ class MainActivity : AppCompatActivity() {
 
         service.let {
             val sensorCharacteristic = BluetoothGattCharacteristic(
-                SENSOR_SET_SENSITIVITY_UUID,
-                BluetoothGattCharacteristic.PROPERTY_WRITE,
+                SENSOR_STATUS_UUID,
+                BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
                 BluetoothGattCharacteristic.PERMISSION_WRITE
             )
 
@@ -318,7 +318,7 @@ class MainActivity : AppCompatActivity() {
             )
 
             if (characteristic != null) {
-                if (characteristic.uuid == SENSOR_SET_SENSITIVITY_UUID) {
+                if (characteristic.uuid == SENSOR_CALIBRATE_UUID) {
                     val byteBuffer = ByteBuffer.wrap(value)
                     byteBuffer.order(ByteOrder.LITTLE_ENDIAN) // Ensure the same byte order is used
                     val delta = byteBuffer.getFloat()
@@ -326,16 +326,34 @@ class MainActivity : AppCompatActivity() {
                     val requestIntent = Intent(BroadcastActions.ACTION_SET_VALUE_REQUEST)
                     requestIntent.putExtra("SENSITIVITY", delta)
                     sendBroadcast(requestIntent)
+                }
+                if (characteristic.uuid == SENSOR_STATUS_UUID) {
+                    pendingStatusDevice = device
+                    pendingStatusCharacteristic = characteristic
 
-                    if (responseNeeded) {
-                        bluetoothGattServer?.sendResponse(
-                            device,
-                            requestId,
-                            BluetoothGatt.GATT_SUCCESS,
-                            offset,
-                            null
-                        )
-                    }
+                    val byteBuffer = ByteBuffer.wrap(value)
+                    byteBuffer.order(ByteOrder.LITTLE_ENDIAN) // Ensure the same byte order is used
+                    val flags = byteBuffer.getInt()
+
+                    SensorRepository.updateSensorStatusData(flags)
+
+/*
+                    bluetoothGattServer?.notifyCharacteristicChanged(
+                        device,
+                        characteristic,
+                        false  // or true if using indications
+                    )
+
+ */
+                }
+                if (responseNeeded) {
+                    bluetoothGattServer?.sendResponse(
+                        device,
+                        requestId,
+                        BluetoothGatt.GATT_SUCCESS,
+                        offset,
+                        null
+                    )
                 }
             }
 
@@ -347,6 +365,32 @@ class MainActivity : AppCompatActivity() {
         byteBuffer.order(ByteOrder.LITTLE_ENDIAN) // BLE typically uses little-endian
         floats.forEach { byteBuffer.putFloat(it) }
         return byteBuffer.array()
+    }
+
+    private fun intsToByteArray(ints: IntArray): ByteArray {
+        val byteBuffer = ByteBuffer.allocate(ints.size * 4) // 4 bytes per float
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN) // BLE typically uses little-endian
+        ints.forEach { byteBuffer.putInt(it) }
+        return byteBuffer.array()
+    }
+
+    private val statusReceiver = object : BroadcastReceiver() {
+        @SuppressLint("MissingPermission")
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == BroadcastActions.ACTION_STATUS_REQUEST) {
+                if (pendingStatusDevice != null && pendingStatusCharacteristic != null) {
+                    val value = intent.getIntExtra("STATUS", 0)
+                    val flags = intsToByteArray(intArrayOf(value))
+
+                    pendingStatusCharacteristic!!.value = flags
+                    bluetoothGattServer?.notifyCharacteristicChanged(
+                        pendingStatusDevice,
+                        pendingStatusCharacteristic,
+                        false  // or true if using indications
+                    )
+                }
+            }
+        }
     }
 
     private val calibrationResultReceiver = object : BroadcastReceiver() {

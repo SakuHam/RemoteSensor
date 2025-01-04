@@ -45,7 +45,7 @@ class SensorForegroundService : Service(), SensorEventListener {
 
         // Acquire the sensor manager and accelerometer
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
         // Register listener
         accelerometer?.also {
@@ -95,7 +95,7 @@ class SensorForegroundService : Service(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent?) {
         event?.let {
-            if (it.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) {
+            if (it.sensor.type == Sensor.TYPE_ACCELEROMETER) {
                 // Get the accelerometer values
                 val x = it.values[0]
                 val y = it.values[1]

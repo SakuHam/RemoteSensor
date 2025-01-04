@@ -20,4 +20,11 @@ object SensorRepository {
     fun updateSensorCalibrationData(newData: CalibrationData) {
         _sensorCalibrationData.value = newData
     }
+
+    private val _sensorStatusData = MutableLiveData<Int>()
+    val sensorStatusData: LiveData<Int> get() = _sensorStatusData
+
+    fun updateSensorStatusData(newData: Int) {
+        _sensorStatusData.value = newData
+    }
 }

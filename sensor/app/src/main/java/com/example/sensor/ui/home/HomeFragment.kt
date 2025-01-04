@@ -1,12 +1,18 @@
 package com.example.sensor.ui.home
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
+import androidx.core.content.ContextCompat
+import androidx.core.content.ContextCompat.registerReceiver
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import com.example.sensor.BroadcastActions
 import com.example.sensor.databinding.FragmentHomeBinding
 import com.example.sensor.ui.SensorViewModel
 
@@ -42,9 +48,17 @@ class HomeFragment : Fragment() {
 
             binding.root.setBackgroundColor(requireContext().getColor(android.R.color.holo_red_dark))
 
+            val requestIntent = Intent(BroadcastActions.ACTION_STATUS_REQUEST)
+            requestIntent.putExtra("STATUS", 1)
+            requireActivity().sendBroadcast(requestIntent)
+
             binding.root.postDelayed({
                 // Reset to original background (e.g., white or your default)
                 binding.root.setBackgroundColor(requireContext().getColor(android.R.color.white))
+
+                val requestIntent = Intent(BroadcastActions.ACTION_STATUS_REQUEST)
+                requestIntent.putExtra("STATUS", 0)
+                requireActivity().sendBroadcast(requestIntent)
             }, 500)
         }
 
@@ -56,6 +70,23 @@ class HomeFragment : Fragment() {
             binding.textViewCD.text = "CD: %.2f m/s²".format(data.d)
         }
 
+        viewModel.sensorStatusData.observe(viewLifecycleOwner) { data ->
+            binding.root.setBackgroundColor(requireContext().getColor(android.R.color.holo_green_dark))
+
+            val requestIntent = Intent(BroadcastActions.ACTION_STATUS_REQUEST)
+            requestIntent.putExtra("STATUS", 2)
+            requireActivity().sendBroadcast(requestIntent)
+
+            binding.root.postDelayed({
+                // Reset to original background (e.g., white or your default)
+                binding.root.setBackgroundColor(requireContext().getColor(android.R.color.white))
+
+                val requestIntent = Intent(BroadcastActions.ACTION_STATUS_REQUEST)
+                requestIntent.putExtra("STATUS", 0)
+                requireActivity().sendBroadcast(requestIntent)
+            }, 500)
+        }
+
         return root
     }
 
@@ -63,4 +94,5 @@ class HomeFragment : Fragment() {
         super.onDestroyView()
         _binding = null
     }
+
 }

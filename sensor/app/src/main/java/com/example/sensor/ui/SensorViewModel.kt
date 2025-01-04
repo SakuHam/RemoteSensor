@@ -10,4 +10,5 @@ import com.example.sensor.ui.model.CalibrationData
 class SensorViewModel : ViewModel() {
     val sensorData: LiveData<AccelerometerData> = SensorRepository.sensorData
     val sensorCalibrationData: LiveData<CalibrationData> = SensorRepository.sensorCalibrationData
+    val sensorStatusData: LiveData<Int> = SensorRepository.sensorStatusData
 }

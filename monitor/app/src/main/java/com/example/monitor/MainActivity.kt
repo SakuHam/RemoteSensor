@@ -57,7 +57,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MonitorApp"
         val SENSOR_SERVICE_UUID: UUID = UUID.fromString("0000feed-0000-1000-8000-00805f9b34fb")
-        val SENSOR_SET_SENSITIVITY_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
+        val SENSOR_STATUS_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
         val SENSOR_CALIBRATE_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-01805f9b34fb")
     }
 
@@ -99,16 +99,19 @@ class MainActivity : AppCompatActivity() {
         setupActionBarWithNavController(navController, appBarConfiguration)
         navView.setupWithNavController(navController)
 
+        val recyclerView = findViewById<RecyclerView>(R.id.sensorRecyclerView)
         sensorAdapter = SensorAdapter(
+            recyclerView,
             onIncreaseSensitivity = { sensor ->
                 writeSensitivityValue(sensor, 0.1f)
             },
             onDecreaseSensitivity = { sensor ->
                 writeSensitivityValue(sensor, -0.1f)
+            },
+            onStatusRequest = { sensor ->
+                writeStatusValue(sensor, intArrayOf(1))
             }
         )
-
-        val recyclerView = findViewById<RecyclerView>(R.id.sensorRecyclerView)
         recyclerView.adapter = sensorAdapter
         recyclerView.layoutManager = LinearLayoutManager(this)
 
@@ -145,7 +148,9 @@ class MainActivity : AppCompatActivity() {
         return navController.navigateUp(appBarConfiguration) || super.onSupportNavigateUp()
     }
 
+    @SuppressLint("MissingPermission")
     fun startScanForSensor() {
+        sensorViewModel.forget()
         val scanFilter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(SENSOR_SERVICE_UUID))
             .build()
@@ -154,22 +159,7 @@ class MainActivity : AppCompatActivity() {
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH_SCAN
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
-            return
-        }
         bluetoothLeScanner.startScan(listOf(scanFilter), scanSettings, scanCallback)
-//        bluetoothLeScanner.startScan(null, scanSettings, scanCallback)
         Log.d(TAG, "Started BLE scan for Sensor")
     }
 
@@ -261,9 +251,16 @@ class MainActivity : AppCompatActivity() {
                         descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                         gatt.writeDescriptor(descriptor)
                     }
-                    characteristic = service.getCharacteristic(SENSOR_SET_SENSITIVITY_UUID)
+                    characteristic = service.getCharacteristic(SENSOR_STATUS_UUID)
                     if (characteristic != null) {
                         pendingSensor?.characteristics?.add(characteristic)
+                        gatt.readCharacteristic(characteristic)
+
+                        gatt.setCharacteristicNotification(characteristic, true)
+                        val descriptor =
+                            characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+                        descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        gatt.writeDescriptor(descriptor)
                     }
                 }
             } else {
@@ -293,6 +290,22 @@ class MainActivity : AppCompatActivity() {
                 val data = byteArrayToFloats(characteristic.value)
                 toast("Calibrated: x:${data[0]}, y:${data[1]}, z:${data[2]}, d:${data[3]}")
             }
+            if (characteristic.uuid == SENSOR_STATUS_UUID) {
+                val data = byteArrayToInts(characteristic.value)[0]
+                val sensor = sensorAdapter.currentList.find { it.gatt == gatt }
+                if (sensor != null) {
+                    val color = when (data) {
+                        0 -> android.graphics.Color.WHITE
+                        1 -> android.graphics.Color.RED
+                        2 -> android.graphics.Color.GREEN
+                        else -> android.graphics.Color.WHITE
+                    }
+
+                    runOnUiThread {
+                        sensorAdapter.updateDeviceStatus(sensor, color)
+                    }
+                }
+            }
         }
 
         fun byteArrayToFloats(byteArray: ByteArray): FloatArray {
@@ -303,6 +316,16 @@ class MainActivity : AppCompatActivity() {
                 floats[i] = byteBuffer.getFloat()
             }
             return floats
+        }
+
+        fun byteArrayToInts(byteArray: ByteArray): IntArray {
+            val byteBuffer = ByteBuffer.wrap(byteArray)
+            byteBuffer.order(ByteOrder.LITTLE_ENDIAN) // Ensure the same byte order is used
+            val ints = IntArray(byteArray.size / 4) // 4 bytes per float
+            for (i in ints.indices) {
+                ints[i] = byteBuffer.getInt()
+            }
+            return ints
         }
     }
 
@@ -350,7 +373,7 @@ class MainActivity : AppCompatActivity() {
     fun writeSensitivityValue(sensor: SensorObject, sensitivity: Float) {
         val gatt = sensor.gatt
         val service = gatt?.getService(SENSOR_SERVICE_UUID)
-        val characteristic = service?.getCharacteristic(SENSOR_SET_SENSITIVITY_UUID)
+        val characteristic = service?.getCharacteristic(SENSOR_CALIBRATE_UUID)
 
         if (characteristic != null) {
             val byteBuffer = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN)
@@ -361,6 +384,28 @@ class MainActivity : AppCompatActivity() {
             Log.i(TAG, "Sent sensitivity value: $sensitivity to device: ${sensor.device.address}")
         } else {
             Log.e(TAG, "Characteristic for sensitivity not found on device: ${sensor.device.address}")
+        }
+    }
+
+    private fun intsToByteArray(ints: IntArray): ByteArray {
+        val byteBuffer = ByteBuffer.allocate(ints.size * 4) // 4 bytes per float
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN) // BLE typically uses little-endian
+        ints.forEach { byteBuffer.putInt(it) }
+        return byteBuffer.array()
+    }
+
+    @SuppressLint("MissingPermission")
+    fun writeStatusValue(sensor: SensorObject, status: IntArray) {
+        val gatt = sensor.gatt
+        val service = gatt?.getService(SENSOR_SERVICE_UUID)
+        val characteristic = service?.getCharacteristic(SENSOR_STATUS_UUID)
+
+        if (characteristic != null) {
+            characteristic.value = intsToByteArray(status)
+
+            gatt.writeCharacteristic(characteristic)
+        } else {
+            Log.e(TAG, "Characteristic for status not found on device: ${sensor.device.address}")
         }
     }
 }
