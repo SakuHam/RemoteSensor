@@ -57,7 +57,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MonitorApp"
         val SENSOR_SERVICE_UUID: UUID = UUID.fromString("0000feed-0000-1000-8000-00805f9b34fb")
-        val SENSOR_CHARACTERISTIC_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
+        val SENSOR_SET_SENSITIVITY_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
         val SENSOR_CALIBRATE_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-01805f9b34fb")
     }
 
@@ -99,8 +99,16 @@ class MainActivity : AppCompatActivity() {
         setupActionBarWithNavController(navController, appBarConfiguration)
         navView.setupWithNavController(navController)
 
+        sensorAdapter = SensorAdapter(
+            onIncreaseSensitivity = { sensor ->
+                writeSensitivityValue(sensor, 0.1f)
+            },
+            onDecreaseSensitivity = { sensor ->
+                writeSensitivityValue(sensor, -0.1f)
+            }
+        )
+
         val recyclerView = findViewById<RecyclerView>(R.id.sensorRecyclerView)
-        sensorAdapter = SensorAdapter()
         recyclerView.adapter = sensorAdapter
         recyclerView.layoutManager = LinearLayoutManager(this)
 
@@ -170,10 +178,9 @@ class MainActivity : AppCompatActivity() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
             val device = result.device
-            pendingSensor = SensorObject(device, null, mutableListOf()).apply {
-                if (!sensorViewModel.addSensor(this)) {
-                    connectToDevice(device)
-                }
+            pendingSensor = SensorObject(device, null, mutableListOf())
+            if (!sensorViewModel.addSensor(pendingSensor!!)) {
+                connectToDevice(device)
             }
 
             Log.i(TAG, "Found device: ${device.address} (name=${device.name})")
@@ -201,9 +208,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         val gatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
-        pendingSensor.let {
-            this.bluetoothGatt = gatt
-        }
+        pendingSensor!!.gatt = gatt
         Log.i(TAG, "Connecting to GATT server on device: ${device.address}")
     }
 
@@ -244,7 +249,7 @@ class MainActivity : AppCompatActivity() {
                 Log.i(TAG, "Services discovered")
                 val service = gatt.getService(SENSOR_SERVICE_UUID)
                 if (service != null) {
-                    val characteristic = service.getCharacteristic(SENSOR_CALIBRATE_UUID)
+                    var characteristic = service.getCharacteristic(SENSOR_CALIBRATE_UUID)
                     if (characteristic != null) {
                         pendingSensor?.characteristics?.add(characteristic)
 
@@ -255,6 +260,10 @@ class MainActivity : AppCompatActivity() {
                             characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
                         descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                         gatt.writeDescriptor(descriptor)
+                    }
+                    characteristic = service.getCharacteristic(SENSOR_SET_SENSITIVITY_UUID)
+                    if (characteristic != null) {
+                        pendingSensor?.characteristics?.add(characteristic)
                     }
                 }
             } else {
@@ -334,6 +343,24 @@ class MainActivity : AppCompatActivity() {
             }
         } else {
             // Possibly request location if < Android 12
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun writeSensitivityValue(sensor: SensorObject, sensitivity: Float) {
+        val gatt = sensor.gatt
+        val service = gatt?.getService(SENSOR_SERVICE_UUID)
+        val characteristic = service?.getCharacteristic(SENSOR_SET_SENSITIVITY_UUID)
+
+        if (characteristic != null) {
+            val byteBuffer = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN)
+            byteBuffer.putFloat(sensitivity)
+            characteristic.value = byteBuffer.array()
+
+            gatt.writeCharacteristic(characteristic)
+            Log.i(TAG, "Sent sensitivity value: $sensitivity to device: ${sensor.device.address}")
+        } else {
+            Log.e(TAG, "Characteristic for sensitivity not found on device: ${sensor.device.address}")
         }
     }
 }

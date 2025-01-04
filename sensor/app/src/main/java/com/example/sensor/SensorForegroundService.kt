@@ -55,13 +55,17 @@ class SensorForegroundService : Service(), SensorEventListener {
         // Promote to Foreground Service with a notification
         startForeground(NOTIFICATION_ID, createNotification())
 
-        val filter = IntentFilter(BroadcastActions.ACTION_CALIBRATION_REQUEST)
-        registerReceiver(calibrationReceiver, filter, RECEIVER_EXPORTED)
+        registerReceiver(calibrationReceiver,
+            IntentFilter(BroadcastActions.ACTION_CALIBRATION_REQUEST), RECEIVER_EXPORTED)
+
+        registerReceiver(setterReceiver,
+            IntentFilter(BroadcastActions.ACTION_SET_VALUE_REQUEST), RECEIVER_EXPORTED)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(calibrationReceiver)
+        unregisterReceiver(setterReceiver)
         sensorManager.unregisterListener(this)
     }
 
@@ -141,6 +145,20 @@ class SensorForegroundService : Service(), SensorEventListener {
                 responseIntent.putExtra(BroadcastActions.EXTRA_CALIB_RESULT, response)
                 sendBroadcast(responseIntent)
                 Log.d(TAG, "Sent calibration response: $response")
+            }
+        }
+    }
+
+    private val setterReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == BroadcastActions.ACTION_SET_VALUE_REQUEST) {
+                Log.d(TAG, "Received set value request broadcast")
+
+                val delta = intent.getFloatExtra("SENSITIVITY", 0.0f)
+                calibration = Quadruple(calibration.first, calibration.second, calibration.third,
+                    calibration.fourth+delta)
+                SensorRepository.updateSensorCalibrationData(CalibrationData(calibration.first, calibration.second, calibration.third,
+                    calibration.fourth))
             }
         }
     }

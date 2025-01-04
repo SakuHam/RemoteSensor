@@ -3,26 +3,74 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:orientation="horizontal"
+    android:padding="8dp"
+    android:background="@drawable/rounded_border"
+    android:gravity="center_vertical"
+    android:layout_margin="8dp">
 
-    <TextView
-        android:id="@+id/deviceName"
+    <!-- Device Status Indicator -->
+    <View
+        android:id="@+id/deviceStatus"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:background="@drawable/red_square"
+        android:layout_marginEnd="16dp" />
+
+    <!-- Device Info Layout -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/deviceName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Device Name"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/deviceAddress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Device Address"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/characteristicCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Characteristics: 0" />
+    </LinearLayout>
+
+    <!-- Sensitivity Adjustment Buttons -->
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Device Name"
-        android:textSize="18sp"
-        android:textStyle="bold" />
+        android:orientation="vertical"
+        android:gravity="center"
+        android:layout_marginStart="20dp">
 
-    <TextView
-        android:id="@+id/deviceAddress"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Device Address" />
+        <Button
+            android:id="@+id/buttonIncreaseSensitivity"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:text="+"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/red_square"
+            android:layout_marginBottom="8dp" />
 
-    <TextView
-        android:id="@+id/characteristicCount"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Characteristics: 0" />
+        <Button
+            android:id="@+id/buttonDecreaseSensitivity"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:text="-"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/red_square" />
+    </LinearLayout>
+
 </LinearLayout>

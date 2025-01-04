@@ -81,7 +81,7 @@ class MainActivity : AppCompatActivity() {
 
         // Example UUIDs (replace with your own)
         val SENSOR_SERVICE_UUID: UUID = UUID.fromString("0000feed-0000-1000-8000-00805f9b34fb")
-        val SENSOR_CHARACTERISTIC_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
+        val SENSOR_SET_SENSITIVITY_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
         val SENSOR_CALIBRATE_UUID: UUID = UUID.fromString("0000beef-0000-1000-8000-01805f9b34fb")
         val CONFIG_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
@@ -176,21 +176,41 @@ class MainActivity : AppCompatActivity() {
             BluetoothGattService.SERVICE_TYPE_PRIMARY
         )
 
-        val sensorCharacteristic = BluetoothGattCharacteristic(
-            SENSOR_CALIBRATE_UUID,
-            BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-            BluetoothGattCharacteristic.PERMISSION_READ
-        )
+        service.let {
+            val sensorCharacteristic = BluetoothGattCharacteristic(
+                SENSOR_CALIBRATE_UUID,
+                BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                BluetoothGattCharacteristic.PERMISSION_READ
+            )
 
-        // Descriptor for notifications
-        val configDescriptor = BluetoothGattDescriptor(
-            CONFIG_DESCRIPTOR_UUID,
-            BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
-        )
-        sensorCharacteristic.addDescriptor(configDescriptor)
+            // Descriptor for notifications
+            val configDescriptor = BluetoothGattDescriptor(
+                CONFIG_DESCRIPTOR_UUID,
+                BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
+            )
+            sensorCharacteristic.addDescriptor(configDescriptor)
 
-        // Add the characteristic to the service
-        service.addCharacteristic(sensorCharacteristic)
+            // Add the characteristic to the service
+            service.addCharacteristic(sensorCharacteristic)
+        }
+
+        service.let {
+            val sensorCharacteristic = BluetoothGattCharacteristic(
+                SENSOR_SET_SENSITIVITY_UUID,
+                BluetoothGattCharacteristic.PROPERTY_WRITE,
+                BluetoothGattCharacteristic.PERMISSION_WRITE
+            )
+
+            // Descriptor for notifications
+            val configDescriptor = BluetoothGattDescriptor(
+                CONFIG_DESCRIPTOR_UUID,
+                BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
+            )
+            sensorCharacteristic.addDescriptor(configDescriptor)
+
+            // Add the characteristic to the service
+            service.addCharacteristic(sensorCharacteristic)
+        }
 
         // Add the service to the GATT Server
         bluetoothGattServer?.addService(service)
@@ -275,6 +295,50 @@ class MainActivity : AppCompatActivity() {
                 val requestIntent = Intent(BroadcastActions.ACTION_CALIBRATION_REQUEST)
                 sendBroadcast(requestIntent)
             }
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onCharacteristicWriteRequest(
+            device: BluetoothDevice?,
+            requestId: Int,
+            characteristic: BluetoothGattCharacteristic?,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray?
+        ) {
+            super.onCharacteristicWriteRequest(
+                device,
+                requestId,
+                characteristic,
+                preparedWrite,
+                responseNeeded,
+                offset,
+                value
+            )
+
+            if (characteristic != null) {
+                if (characteristic.uuid == SENSOR_SET_SENSITIVITY_UUID) {
+                    val byteBuffer = ByteBuffer.wrap(value)
+                    byteBuffer.order(ByteOrder.LITTLE_ENDIAN) // Ensure the same byte order is used
+                    val delta = byteBuffer.getFloat()
+
+                    val requestIntent = Intent(BroadcastActions.ACTION_SET_VALUE_REQUEST)
+                    requestIntent.putExtra("SENSITIVITY", delta)
+                    sendBroadcast(requestIntent)
+
+                    if (responseNeeded) {
+                        bluetoothGattServer?.sendResponse(
+                            device,
+                            requestId,
+                            BluetoothGatt.GATT_SUCCESS,
+                            offset,
+                            null
+                        )
+                    }
+                }
+            }
+
         }
     }
 

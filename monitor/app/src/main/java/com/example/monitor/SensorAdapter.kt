@@ -13,7 +13,10 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.monitor.R
 import com.example.monitor.databinding.ItemSensorBinding
 
-class SensorAdapter : ListAdapter<SensorObject, SensorAdapter.SensorViewHolder>(SensorDiffCallback()) {
+class SensorAdapter(
+    private val onIncreaseSensitivity: (SensorObject) -> Unit,
+    private val onDecreaseSensitivity: (SensorObject) -> Unit
+) : ListAdapter<SensorObject, SensorAdapter.SensorViewHolder>(SensorDiffCallback()) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SensorViewHolder {
         val binding = ItemSensorBinding.inflate(LayoutInflater.from(parent.context), parent, false)
@@ -22,15 +25,19 @@ class SensorAdapter : ListAdapter<SensorObject, SensorAdapter.SensorViewHolder>(
 
     override fun onBindViewHolder(holder: SensorViewHolder, position: Int) {
         val sensor = getItem(position)
-        holder.bind(sensor)
+        holder.bind(sensor, onIncreaseSensitivity, onDecreaseSensitivity)
     }
 
     class SensorViewHolder(private val binding: ItemSensorBinding) : RecyclerView.ViewHolder(binding.root) {
         @SuppressLint("MissingPermission")
-        fun bind(sensor: SensorObject) {
+        fun bind(sensor: SensorObject, onIncrease: (SensorObject) -> Unit, onDecrease: (SensorObject) -> Unit) {
             binding.deviceName.text = sensor.device.name ?: "Unknown Device"
             binding.deviceAddress.text = sensor.device.address
             binding.characteristicCount.text = "Characteristics: ${sensor.characteristics.size}"
+
+            // Button listeners
+            binding.buttonIncreaseSensitivity.setOnClickListener { onIncrease(sensor) }
+            binding.buttonDecreaseSensitivity.setOnClickListener { onDecrease(sensor) }
         }
     }
 
