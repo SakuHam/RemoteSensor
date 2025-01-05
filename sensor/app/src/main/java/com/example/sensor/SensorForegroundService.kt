@@ -13,12 +13,11 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.lifecycle.ViewModelProvider
-import com.example.sensor.ui.SensorViewModel
 import com.example.sensor.ui.model.AccelerometerData
 import com.example.sensor.ui.model.CalibrationData
 import kotlin.math.abs
@@ -36,8 +35,17 @@ class SensorForegroundService : Service(), SensorEventListener {
     private var writeIndex = 0  // Points to where the next sample goes
     private var filledSamples = 0  // How many slots are actually filled (up to MAX_SAMPLES)
 
+    // calibration = (avgX, avgY, avgZ, threshold)
     @Volatile
     private var calibration = Quadruple(0.02f, 0.02f, 0.20f, 0.1f)
+
+    // Keep track of the number of triggers since last reset
+    @Volatile
+    private var triggerCountDuringCalibration = 0
+
+    // A separate handler thread for iterative calibration logic
+    private lateinit var calibrationThread: HandlerThread
+    private lateinit var calibrationHandler: Handler
 
     @SuppressLint("ForegroundServiceType")
     override fun onCreate() {
@@ -55,11 +63,23 @@ class SensorForegroundService : Service(), SensorEventListener {
         // Promote to Foreground Service with a notification
         startForeground(NOTIFICATION_ID, createNotification())
 
-        registerReceiver(calibrationReceiver,
-            IntentFilter(BroadcastActions.ACTION_CALIBRATION_REQUEST), RECEIVER_EXPORTED)
+        // Set up a separate thread for calibration tasks
+        calibrationThread = HandlerThread("CalibrationThread")
+        calibrationThread.start()
+        calibrationHandler = Handler(calibrationThread.looper)
 
-        registerReceiver(setterReceiver,
-            IntentFilter(BroadcastActions.ACTION_SET_VALUE_REQUEST), RECEIVER_EXPORTED)
+        // Register receivers
+        registerReceiver(
+            calibrationReceiver,
+            IntentFilter(BroadcastActions.ACTION_CALIBRATION_REQUEST),
+            RECEIVER_EXPORTED
+        )
+
+        registerReceiver(
+            setterReceiver,
+            IntentFilter(BroadcastActions.ACTION_SET_VALUE_REQUEST),
+            RECEIVER_EXPORTED
+        )
     }
 
     override fun onDestroy() {
@@ -67,6 +87,7 @@ class SensorForegroundService : Service(), SensorEventListener {
         unregisterReceiver(calibrationReceiver)
         unregisterReceiver(setterReceiver)
         sensorManager.unregisterListener(this)
+        calibrationThread.quitSafely()
     }
 
     private fun createNotification(): Notification {
@@ -96,7 +117,6 @@ class SensorForegroundService : Service(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent?) {
         event?.let {
             if (it.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-                // Get the accelerometer values
                 val x = it.values[0]
                 val y = it.values[1]
                 val z = it.values[2]
@@ -104,15 +124,18 @@ class SensorForegroundService : Service(), SensorEventListener {
                 val deltaX = abs(x - calibration.first)
                 val deltaY = abs(y - calibration.second)
                 val deltaZ = abs(z - calibration.third)
-                val d = sqrt(deltaX*deltaX + deltaY*deltaY + deltaZ*deltaZ)
+                val d = sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ)
 
-                if (d < calibration.fourth) return
-
-                // Update the ViewModel with the new accelerometer data
-                val data = AccelerometerData(x, y, z)
-                addSample(data)
-
-                SensorRepository.updateSensorData(data)
+                // If we consider 'calibration.fourth' to be the threshold
+                if (d >= calibration.fourth) {
+                    // This reading "triggers" an event
+                    triggerCountDuringCalibration++
+                    val data = AccelerometerData(x, y, z)
+                    addSample(data)
+                    SensorRepository.updateSensorData(data)
+                } else {
+                    // If below threshold, ignore or do something else
+                }
             }
         }
     }
@@ -136,11 +159,18 @@ class SensorForegroundService : Service(), SensorEventListener {
             if (intent.action == BroadcastActions.ACTION_CALIBRATION_REQUEST) {
                 Log.d(TAG, "Received calibration request broadcast")
 
+                // Do the normal single calibration pass
                 val (avgX, avgY, avgZ, maxDiff) = computeCalibration()
                 calibration = Quadruple(avgX, avgY, avgZ, maxDiff)
-                SensorRepository.updateSensorCalibrationData(CalibrationData(avgX, avgY, avgZ, maxDiff))
-                val response = floatArrayOf(avgX, avgY, avgZ, maxDiff)
+                SensorRepository.updateSensorCalibrationData(
+                    CalibrationData(avgX, avgY, avgZ, maxDiff)
+                )
 
+                // Also optionally start an adaptive calibration approach in background
+                // If you only want the single pass, comment this out.
+                startAdaptiveCalibration()
+
+                val response = floatArrayOf(avgX, avgY, avgZ, maxDiff)
                 val responseIntent = Intent(BroadcastActions.ACTION_CALIBRATION_RESPONSE)
                 responseIntent.putExtra(BroadcastActions.EXTRA_CALIB_RESULT, response)
                 sendBroadcast(responseIntent)
@@ -155,10 +185,20 @@ class SensorForegroundService : Service(), SensorEventListener {
                 Log.d(TAG, "Received set value request broadcast")
 
                 val delta = intent.getFloatExtra("SENSITIVITY", 0.0f)
-                calibration = Quadruple(calibration.first, calibration.second, calibration.third,
-                    calibration.fourth+delta)
-                SensorRepository.updateSensorCalibrationData(CalibrationData(calibration.first, calibration.second, calibration.third,
-                    calibration.fourth))
+                calibration = Quadruple(
+                    calibration.first,
+                    calibration.second,
+                    calibration.third,
+                    calibration.fourth + delta
+                )
+                SensorRepository.updateSensorCalibrationData(
+                    CalibrationData(
+                        calibration.first,
+                        calibration.second,
+                        calibration.third,
+                        calibration.fourth
+                    )
+                )
             }
         }
     }
@@ -176,7 +216,7 @@ class SensorForegroundService : Service(), SensorEventListener {
         synchronized(recentReadings) {
             sampleCount = filledSamples
             if (sampleCount == 0) {
-                // no data
+                // No data
                 return Quadruple(0f, 0f, 0f, 0f)
             }
             for (i in 0 until sampleCount) {
@@ -190,12 +230,12 @@ class SensorForegroundService : Service(), SensorEventListener {
             }
         }
 
-        // compute average
+        // Compute average
         val avgX = sumX / sampleCount
         val avgY = sumY / sampleCount
         val avgZ = sumZ / sampleCount
 
-        // find max distance
+        // Find max distance
         var maxDistance = 0f
         synchronized(recentReadings) {
             for (i in 0 until sampleCount) {
@@ -205,7 +245,7 @@ class SensorForegroundService : Service(), SensorEventListener {
                     val dx = reading.x - avgX
                     val dy = reading.y - avgY
                     val dz = reading.z - avgZ
-                    val distance = kotlin.math.sqrt(dx*dx + dy*dy + dz*dz)
+                    val distance = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
                     if (distance > maxDistance) {
                         maxDistance = distance
                     }
@@ -216,6 +256,75 @@ class SensorForegroundService : Service(), SensorEventListener {
         return Quadruple(avgX, avgY, avgZ, maxDistance)
     }
 
+    /**
+     * Example approach to automatically find a threshold that yields a desired
+     * trigger rate (e.g., X triggers / second). This runs in the background
+     * and stops when we get close enough or after a max iteration count.
+     */
+    private fun startAdaptiveCalibration() {
+        calibrationHandler.post {
+            // Suppose we want 5 triggers per second
+            val desiredTriggersPerSecond = 0
+            val calibrationDurationMs = 3000L // measure for 3 seconds each iteration
+            val maxIterations = 10
+            var iteration = 0
+
+            // Some min/max bounds for threshold (just an example)
+            var minThreshold = 0.01f
+            var maxThreshold = 5.0f
+
+            while (iteration < maxIterations) {
+                iteration++
+
+                // Reset triggers count
+                triggerCountDuringCalibration = 0
+
+                // Run for a few seconds with the current threshold
+                try {
+                    Thread.sleep(calibrationDurationMs)
+                } catch (e: InterruptedException) {
+                    // handle interruption
+                }
+
+                // Calculate triggers per second
+                val triggersPerSecond = triggerCountDuringCalibration / (calibrationDurationMs / 1000f)
+
+                // Check how close we are to desired
+                val error = triggersPerSecond - desiredTriggersPerSecond
+                if (kotlin.math.abs(error) < 1.0f) {
+                    // Close enough, break
+                    Log.d(TAG, "Adaptive calibration converged in $iteration iterations. " +
+                            "Threshold=${calibration.fourth}, triggers/s=$triggersPerSecond")
+                    break
+                }
+
+                // Simple “binary search” or naive step:
+                // If we have too many triggers, threshold is too low -> raise threshold
+                // If we have too few triggers, threshold is too high -> lower threshold
+                if (error > 0) {
+                    // We are getting more triggers than desired; increase threshold
+                    minThreshold = calibration.fourth
+                    calibration = calibration.copy(fourth = (calibration.fourth + maxThreshold) / 2f)
+                } else {
+                    // We are getting fewer triggers than desired; decrease threshold
+                    maxThreshold = calibration.fourth
+                    calibration = calibration.copy(fourth = (calibration.fourth + minThreshold) / 2f)
+                }
+
+                // Log iteration
+                Log.d(TAG, "Iteration=$iteration, triggers/s=$triggersPerSecond, " +
+                        "new threshold=${calibration.fourth}")
+            }
+
+            // If you want to store the final calibration somewhere
+            SensorRepository.updateSensorCalibrationData(
+                CalibrationData(calibration.first, calibration.second,
+                    calibration.third, calibration.fourth)
+            )
+
+            Log.d(TAG, "Adaptive calibration finished. Final threshold=${calibration.fourth}")
+        }
+    }
 
     /** A simple class that holds 4 typed values. */
     data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
