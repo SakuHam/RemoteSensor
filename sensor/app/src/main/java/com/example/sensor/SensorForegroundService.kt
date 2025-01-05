@@ -256,27 +256,19 @@ class SensorForegroundService : Service(), SensorEventListener {
         return Quadruple(avgX, avgY, avgZ, maxDistance)
     }
 
-    /**
-     * Example approach to automatically find a threshold that yields a desired
-     * trigger rate (e.g., X triggers / second). This runs in the background
-     * and stops when we get close enough or after a max iteration count.
-     */
     private fun startAdaptiveCalibration() {
         calibrationHandler.post {
-            // Suppose we want 5 triggers per second
             val desiredTriggersPerSecond = 0
-            val calibrationDurationMs = 3000L // measure for 3 seconds each iteration
+            val calibrationDurationMs = 3000L
             val maxIterations = 10
             var iteration = 0
 
-            // Some min/max bounds for threshold (just an example)
             var minThreshold = 0.01f
             var maxThreshold = 5.0f
 
             while (iteration < maxIterations) {
                 iteration++
 
-                // Reset triggers count
                 triggerCountDuringCalibration = 0
 
                 // Run for a few seconds with the current threshold
@@ -286,13 +278,10 @@ class SensorForegroundService : Service(), SensorEventListener {
                     // handle interruption
                 }
 
-                // Calculate triggers per second
                 val triggersPerSecond = triggerCountDuringCalibration / (calibrationDurationMs / 1000f)
 
-                // Check how close we are to desired
                 val error = triggersPerSecond - desiredTriggersPerSecond
-                if (kotlin.math.abs(error) < 1.0f) {
-                    // Close enough, break
+                if (abs(error) < 1.0f) {
                     Log.d(TAG, "Adaptive calibration converged in $iteration iterations. " +
                             "Threshold=${calibration.fourth}, triggers/s=$triggersPerSecond")
                     break
@@ -311,12 +300,10 @@ class SensorForegroundService : Service(), SensorEventListener {
                     calibration = calibration.copy(fourth = (calibration.fourth + minThreshold) / 2f)
                 }
 
-                // Log iteration
                 Log.d(TAG, "Iteration=$iteration, triggers/s=$triggersPerSecond, " +
                         "new threshold=${calibration.fourth}")
             }
 
-            // If you want to store the final calibration somewhere
             SensorRepository.updateSensorCalibrationData(
                 CalibrationData(calibration.first, calibration.second,
                     calibration.third, calibration.fourth)
