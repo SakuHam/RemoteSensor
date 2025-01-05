@@ -258,58 +258,66 @@ class SensorForegroundService : Service(), SensorEventListener {
 
     private fun startAdaptiveCalibration() {
         calibrationHandler.post {
-            val desiredTriggersPerSecond = 0
-            val calibrationDurationMs = 3000L
-            val maxIterations = 10
-            var iteration = 0
+            // The max number of iterations
+            val maxIterations = 15
 
-            var minThreshold = 0.01f
-            var maxThreshold = 5.0f
+            // The dynamic calibration duration starts low and increases as we get close
+            // We'll store it in a variable that we adjust each loop
+            var calibrationDurationMs = 1000L  // 1 second initially
 
-            while (iteration < maxIterations) {
-                iteration++
+            var lowThreshold = 0.01f
+            var highThreshold = 5.0f
 
+            for (iteration in 1..maxIterations) {
+                // Pick a test threshold = midpoint
+                val testThreshold = (lowThreshold + highThreshold) / 2f
+                calibration = calibration.copy(fourth = testThreshold)
+
+                // Reset trigger counter
                 triggerCountDuringCalibration = 0
 
-                // Run for a few seconds with the current threshold
-                try {
-                    Thread.sleep(calibrationDurationMs)
-                } catch (e: InterruptedException) {
-                    // handle interruption
+                // Wait for some time to measure triggers
+                Thread.sleep(calibrationDurationMs)
+
+                // If we saw ANY triggers, threshold is too low → raise low boundary
+                if (triggerCountDuringCalibration > 0) {
+                    lowThreshold = testThreshold
+                } else {
+                    // 0 triggers → threshold is too high → lower high boundary
+                    highThreshold = testThreshold
                 }
 
-                val triggersPerSecond = triggerCountDuringCalibration / (calibrationDurationMs / 1000f)
+                Log.d(TAG, "Iteration=$iteration, triggers=$triggerCountDuringCalibration, " +
+                        "testThreshold=$testThreshold, low=$lowThreshold, high=$highThreshold")
 
-                val error = triggersPerSecond - desiredTriggersPerSecond
-                if (abs(error) < 1.0f) {
-                    Log.d(TAG, "Adaptive calibration converged in $iteration iterations. " +
-                            "Threshold=${calibration.fourth}, triggers/s=$triggersPerSecond")
+                // Adjust calibration duration based on how close we are
+                val range = highThreshold - lowThreshold
+                if (range < 0.5f && calibrationDurationMs < 3000L) {
+                    // If we're getting pretty close (range < 0.5), measure longer for next iteration
+                    calibrationDurationMs = 3000L  // 3 seconds
+                }
+
+                // If we've converged enough, break
+                if (range < 0.01f) {
                     break
                 }
-
-                // Simple “binary search” or naive step:
-                // If we have too many triggers, threshold is too low -> raise threshold
-                // If we have too few triggers, threshold is too high -> lower threshold
-                if (error > 0) {
-                    // We are getting more triggers than desired; increase threshold
-                    minThreshold = calibration.fourth
-                    calibration = calibration.copy(fourth = (calibration.fourth + maxThreshold) / 2f)
-                } else {
-                    // We are getting fewer triggers than desired; decrease threshold
-                    maxThreshold = calibration.fourth
-                    calibration = calibration.copy(fourth = (calibration.fourth + minThreshold) / 2f)
-                }
-
-                Log.d(TAG, "Iteration=$iteration, triggers/s=$triggersPerSecond, " +
-                        "new threshold=${calibration.fourth}")
             }
 
+            // Final threshold is between low and high
+            val finalThreshold = (lowThreshold + highThreshold) / 2f
+            calibration = calibration.copy(fourth = finalThreshold)
+
+            // Post or set the final calibration
             SensorRepository.updateSensorCalibrationData(
-                CalibrationData(calibration.first, calibration.second,
-                    calibration.third, calibration.fourth)
+                CalibrationData(
+                    calibration.first,
+                    calibration.second,
+                    calibration.third,
+                    calibration.fourth
+                )
             )
 
-            Log.d(TAG, "Adaptive calibration finished. Final threshold=${calibration.fourth}")
+            Log.d(TAG, "Adaptive calibration finished. Final threshold=$finalThreshold")
         }
     }
 
