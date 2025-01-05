@@ -397,6 +397,7 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == BroadcastActions.ACTION_CALIBRATION_RESPONSE) {
                 val result = intent.getFloatArrayExtra(BroadcastActions.EXTRA_CALIB_RESULT) ?: FloatArray(0)
+                val finished = intent.getBooleanExtra("FINISHED", true)
 
                 val data = floatsToByteArray(result)
 
@@ -420,9 +421,11 @@ class MainActivity : AppCompatActivity() {
                     Log.e(TAG, "Could not respond, GATT server or device is null.")
                 }
 
-                pendingCalibrationDevice = null
-                pendingCalibrationCharacteristic = null
-                isCalibrating = false
+                if (finished) {
+                    pendingCalibrationDevice = null
+                    pendingCalibrationCharacteristic = null
+                    isCalibrating = false
+                }
             }
         }
     }

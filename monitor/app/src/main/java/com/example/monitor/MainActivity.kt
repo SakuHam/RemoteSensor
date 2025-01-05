@@ -288,7 +288,7 @@ class MainActivity : AppCompatActivity() {
             super.onCharacteristicChanged(gatt, characteristic)
             if (characteristic.uuid == SENSOR_CALIBRATE_UUID) {
                 val data = byteArrayToFloats(characteristic.value)
-                toast("Calibrated: x:${data[0]}, y:${data[1]}, z:${data[2]}, d:${data[3]}")
+                toast("Calibrating ${data[3]}")
             }
             if (characteristic.uuid == SENSOR_STATUS_UUID) {
                 val data = byteArrayToInts(characteristic.value)[0]
@@ -329,22 +329,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     override fun onDestroy() {
         super.onDestroy()
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                android.Manifest.permission.BLUETOOTH_CONNECT
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
-            return
-        }
         bluetoothGatt?.close()
     }
 

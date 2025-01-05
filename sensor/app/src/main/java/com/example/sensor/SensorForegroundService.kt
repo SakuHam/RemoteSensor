@@ -169,12 +169,6 @@ class SensorForegroundService : Service(), SensorEventListener {
                 // Also optionally start an adaptive calibration approach in background
                 // If you only want the single pass, comment this out.
                 startAdaptiveCalibration()
-
-                val response = floatArrayOf(avgX, avgY, avgZ, maxDiff)
-                val responseIntent = Intent(BroadcastActions.ACTION_CALIBRATION_RESPONSE)
-                responseIntent.putExtra(BroadcastActions.EXTRA_CALIB_RESULT, response)
-                sendBroadcast(responseIntent)
-                Log.d(TAG, "Sent calibration response: $response")
             }
         }
     }
@@ -297,6 +291,12 @@ class SensorForegroundService : Service(), SensorEventListener {
                     calibrationDurationMs = 3000L  // 3 seconds
                 }
 
+                val response = floatArrayOf(0f, 0f, 0f, testThreshold)
+                val responseIntent = Intent(BroadcastActions.ACTION_CALIBRATION_RESPONSE)
+                responseIntent.putExtra(BroadcastActions.EXTRA_CALIB_RESULT, response)
+                responseIntent.putExtra("FINISHED", false)
+                sendBroadcast(responseIntent)
+
                 // If we've converged enough, break
                 if (range < 0.01f) {
                     break
@@ -316,6 +316,12 @@ class SensorForegroundService : Service(), SensorEventListener {
                     calibration.fourth
                 )
             )
+
+            val response = floatArrayOf(0f, 0f, 0f, calibration.fourth)
+            val responseIntent = Intent(BroadcastActions.ACTION_CALIBRATION_RESPONSE)
+            responseIntent.putExtra(BroadcastActions.EXTRA_CALIB_RESULT, response)
+            responseIntent.putExtra("FINISHED", true)
+            sendBroadcast(responseIntent)
 
             Log.d(TAG, "Adaptive calibration finished. Final threshold=$finalThreshold")
         }
