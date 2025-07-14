@@ -3,6 +3,7 @@ package com.example.monitor
 import android.annotation.SuppressLint
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.core.content.ContentProviderCompat.requireContext
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -17,6 +18,7 @@ class SensorAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SensorViewHolder {
         val binding = ItemSensorBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        binding.deviceStatus.setBackgroundColor(parent.context.getColor(android.R.color.white)) // Startup color
         return SensorViewHolder(binding)
     }
 
