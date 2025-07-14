@@ -12,9 +12,14 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.ContextCompat.registerReceiver
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import com.example.sensor.BroadcastActions
+import com.example.sensor.SensorRepository
 import com.example.sensor.databinding.FragmentHomeBinding
 import com.example.sensor.ui.SensorViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 class HomeFragment : Fragment() {
 
@@ -39,27 +44,35 @@ class HomeFragment : Fragment() {
 
         viewModel = ViewModelProvider(requireActivity())[SensorViewModel::class.java]
 
-        // Observe the LiveData for changes
-        viewModel.sensorData.observe(viewLifecycleOwner) { data ->
-            // Update your TextViews with the accelerometer data
-            binding.textViewX.text = "X: %.2f m/s²".format(data.x)
-            binding.textViewY.text = "Y: %.2f m/s²".format(data.y)
-            binding.textViewZ.text = "Z: %.2f m/s²".format(data.z)
+        SensorRepository.sensorData.observe(viewLifecycleOwner) {
+            SensorRepository.sensorData.value?.let { it1 -> viewModel.updateSensorStatus(it1) }
+        }
 
-            binding.root.setBackgroundColor(requireContext().getColor(android.R.color.holo_red_dark))
+        lifecycleScope.launchWhenStarted {
+            viewModel.distinctSensorStatusFlow.collectLatest { data ->
+                if (data != null) {
+                    binding.textViewX.text = "X: %.2f m/s²".format(data.x)
+                    binding.textViewY.text = "Y: %.2f m/s²".format(data.y)
+                    binding.textViewZ.text = "Z: %.2f m/s²".format(data.z)
+                }
 
-            val requestIntent = Intent(BroadcastActions.ACTION_STATUS_REQUEST)
-            requestIntent.putExtra("STATUS", 1)
-            requireActivity().sendBroadcast(requestIntent)
-
-            binding.root.postDelayed({
-                // Reset to original background (e.g., white or your default)
-                binding.root.setBackgroundColor(requireContext().getColor(android.R.color.white))
+                binding.root.setBackgroundColor(requireContext().getColor(android.R.color.holo_red_dark))
 
                 val requestIntent = Intent(BroadcastActions.ACTION_STATUS_REQUEST)
-                requestIntent.putExtra("STATUS", 0)
+                requestIntent.putExtra("STATUS", 1)
                 requireActivity().sendBroadcast(requestIntent)
-            }, 500)
+
+                delay(500)
+
+                // Check if view is still valid (e.g., avoid crash after rotation)
+                if (_binding != null) {
+                    binding.root.setBackgroundColor(requireContext().getColor(android.R.color.white))
+
+                    val resetIntent = Intent(BroadcastActions.ACTION_STATUS_REQUEST)
+                    resetIntent.putExtra("STATUS", 0)
+                    requireActivity().sendBroadcast(resetIntent)
+                }
+            }
         }
 
         viewModel.sensorCalibrationData.observe(viewLifecycleOwner) { data ->
@@ -70,7 +83,8 @@ class HomeFragment : Fragment() {
             binding.textViewCD.text = "CD: %.2f m/s²".format(data.d)
         }
 
-        viewModel.sensorStatusData.observe(viewLifecycleOwner) { data ->
+        /*
+        viewModel.sensorStatusFlow.observe(viewLifecycleOwner) { data ->
             binding.root.setBackgroundColor(requireContext().getColor(android.R.color.holo_green_dark))
 
             val requestIntent = Intent(BroadcastActions.ACTION_STATUS_REQUEST)
@@ -86,6 +100,8 @@ class HomeFragment : Fragment() {
                 requireActivity().sendBroadcast(requestIntent)
             }, 500)
         }
+
+         */
 
         return root
     }

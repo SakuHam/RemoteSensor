@@ -334,17 +334,15 @@ class MainActivity : AppCompatActivity() {
                     val byteBuffer = ByteBuffer.wrap(value)
                     byteBuffer.order(ByteOrder.LITTLE_ENDIAN) // Ensure the same byte order is used
                     val flags = byteBuffer.getInt()
+                    runOnUiThread {
+                        SensorRepository.updateSensorStatusData(flags)
+                    }
 
-                    SensorRepository.updateSensorStatusData(flags)
-
-/*
                     bluetoothGattServer?.notifyCharacteristicChanged(
                         device,
                         characteristic,
                         false  // or true if using indications
                     )
-
- */
                 }
                 if (responseNeeded) {
                     bluetoothGattServer?.sendResponse(

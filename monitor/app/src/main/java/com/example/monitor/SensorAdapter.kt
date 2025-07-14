@@ -39,6 +39,8 @@ class SensorAdapter(
             // Button listeners
             binding.buttonIncreaseSensitivity.setOnClickListener { onIncrease(sensor) }
             binding.buttonDecreaseSensitivity.setOnClickListener { onDecrease(sensor) }
+
+            onDeviceStatusClicked(sensor)
         }
 
         fun updateDeviceStatusColor(color: Int) {

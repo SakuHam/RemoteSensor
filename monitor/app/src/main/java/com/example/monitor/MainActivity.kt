@@ -39,10 +39,12 @@ import androidx.drawerlayout.widget.DrawerLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.monitor.databinding.ActivityMainBinding
 import com.example.monitor.ui.SensorViewModel
+import kotlinx.coroutines.launch
 import java.io.IOException
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -103,10 +105,10 @@ class MainActivity : AppCompatActivity() {
         sensorAdapter = SensorAdapter(
             recyclerView,
             onIncreaseSensitivity = { sensor ->
-                writeSensitivityValue(sensor, 0.1f)
+                writeSensitivityValue(sensor, 0.01f)
             },
             onDecreaseSensitivity = { sensor ->
-                writeSensitivityValue(sensor, -0.1f)
+                writeSensitivityValue(sensor, -0.01f)
             },
             onStatusRequest = { sensor ->
                 writeStatusValue(sensor, intArrayOf(1))
@@ -135,6 +137,12 @@ class MainActivity : AppCompatActivity() {
         checkBlePermissions()
 
 //        startScanForSensor()
+
+        lifecycleScope.launch {
+            sensorViewModel.colorFlow.collect { (sensor, color) ->
+                sensorAdapter.updateDeviceStatus(sensor, color)
+            }
+        }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -301,9 +309,7 @@ class MainActivity : AppCompatActivity() {
                         else -> android.graphics.Color.WHITE
                     }
 
-                    runOnUiThread {
-                        sensorAdapter.updateDeviceStatus(sensor, color)
-                    }
+                    sensorViewModel.emitSensorColor(sensor, color)
                 }
             }
         }
